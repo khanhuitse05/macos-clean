@@ -1,0 +1,285 @@
+require "fileutils"
+require "shellwords"
+
+ROOT_DIR = File.expand_path("..", __dir__)
+PROJECT_YML = File.join(ROOT_DIR, "project.yml")
+XCODEPROJ = File.join(ROOT_DIR, "macos-clean.xcodeproj")
+EXPORT_OPTIONS = File.join(ROOT_DIR, "fastlane", "ExportOptions.plist")
+RELEASE_DIR = File.join(ROOT_DIR, "build", "release")
+ARCHIVE_PATH = File.join(RELEASE_DIR, "macos-clean.xcarchive")
+EXPORT_DIR = File.join(RELEASE_DIR, "export")
+APP_PATH = File.join(EXPORT_DIR, "macos-clean.app")
+DMG_PATH = File.join(RELEASE_DIR, "macos-clean.dmg")
+SHA_PATH = "#{DMG_PATH}.sha256"
+
+DEFAULT_SIGNING_IDENTITY = "Developer ID Application: GOLDEN OWL CONSULTING COMPANY LIMITED (369462BHJ6)"
+DEFAULT_GITHUB_REPO = "khanhuitse05/macos-clean-release"
+
+def read_project_setting(key)
+  content = File.read(PROJECT_YML)
+  match = content.match(/^\s*#{Regexp.escape(key)}:\s*"?([^"\n]+)"?\s*$/)
+  UI.user_error!("Could not find #{key} in #{PROJECT_YML}") unless match
+  match[1].strip
+end
+
+def update_project_setting(key, value)
+  content = File.read(PROJECT_YML)
+  updated = content.sub(/^(\s*#{Regexp.escape(key)}:\s*)"?[^"\n]+"?(\s*)$/, "\\1\"#{value}\"\\2")
+  UI.user_error!("Could not update #{key} in #{PROJECT_YML}") if updated == content
+  File.write(PROJECT_YML, updated)
+end
+
+def signing_identity
+  ENV.fetch("SIGNING_IDENTITY", DEFAULT_SIGNING_IDENTITY)
+end
+
+def release_repo_dir
+  env_dir = ENV["RELEASE_REPO_DIR"]
+  return File.expand_path(env_dir, ROOT_DIR) if env_dir && !env_dir.strip.empty?
+
+  candidates = [
+    File.expand_path("../maos-clean-release", ROOT_DIR),
+    File.expand_path("../macos-clean-release", ROOT_DIR)
+  ]
+  candidates.find { |path| Dir.exist?(path) } || candidates.first
+end
+
+def github_repo
+  return ENV["GITHUB_REPO"] if ENV["GITHUB_REPO"] && !ENV["GITHUB_REPO"].strip.empty?
+
+  repo_dir = release_repo_dir
+  if Dir.exist?(repo_dir)
+    remote_url = Dir.chdir(repo_dir) { `git remote get-url origin 2>/dev/null`.strip }
+    if remote_url =~ %r{github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$}
+      return Regexp.last_match(1)
+    end
+  end
+
+  DEFAULT_GITHUB_REPO
+end
+
+def notary_credentials_configured?
+  asc_configured = %w[ASC_KEY_PATH ASC_KEY_ID ASC_ISSUER_ID].all? { |k| ENV[k] && !ENV[k].strip.empty? }
+  apple_id_configured = %w[APPLE_ID APPLE_APP_SPECIFIC_PASSWORD].all? { |k| ENV[k] && !ENV[k].strip.empty? }
+  return true if asc_configured || apple_id_configured
+
+  profile = ENV.fetch("NOTARY_PROFILE", "macos-clean-notary")
+  system("xcrun notarytool history --keychain-profile #{Shellwords.escape(profile)} </dev/null >/dev/null 2>&1")
+end
+
+def verify_app_signature!(app_path)
+  sh("codesign", "--verify", "--deep", "--strict", "--verbose=2", app_path)
+  info = Actions.sh("codesign -dvvv #{Shellwords.escape(app_path)} 2>&1", log: false)
+
+  unless info.include?("Authority=Developer ID Application")
+    UI.user_error!("App is not signed with a Developer ID Application certificate:\n#{info}")
+  end
+  unless info.include?("flags=0x10000(runtime)")
+    UI.user_error!("App is missing Hardened Runtime (flags=0x10000(runtime)):\n#{info}")
+  end
+  unless info.include?("Timestamp=")
+    UI.user_error!("App signature is missing a secure timestamp:\n#{info}")
+  end
+
+  UI.success("Verified Developer ID signature, Hardened Runtime, and secure timestamp for #{File.basename(app_path)}")
+end
+
+default_platform(:mac)
+
+platform :mac do
+  desc "Run MacosCleanCore unit tests"
+  lane :test do
+    Dir.chdir(ROOT_DIR) do
+      sh("xcrun", "swift", "test", "--package-path", "Packages/MacosCleanCore")
+    end
+  end
+
+  desc "Regenerate macos-clean.xcodeproj from project.yml"
+  lane :generate do
+    Dir.chdir(ROOT_DIR) do
+      sh("xcodegen", "generate")
+    end
+  end
+
+  desc "Archive and export Release macos-clean.app signed with Developer ID Application"
+  lane :build do |options|
+    test unless options[:skip_tests]
+
+    if options[:version]
+      update_project_setting("MARKETING_VERSION", options[:version].to_s)
+    end
+    if options[:build_number]
+      update_project_setting("CURRENT_PROJECT_VERSION", options[:build_number].to_s)
+    end
+
+    generate
+
+    FileUtils.rm_rf(RELEASE_DIR)
+    FileUtils.mkdir_p(RELEASE_DIR)
+
+    Dir.chdir(ROOT_DIR) do
+      sh(
+        "xcodebuild", "archive",
+        "-project", XCODEPROJ,
+        "-scheme", "macos-clean",
+        "-configuration", "Release",
+        "-destination", "generic/platform=macOS",
+        "-archivePath", ARCHIVE_PATH
+      )
+
+      sh(
+        "xcodebuild", "-exportArchive",
+        "-archivePath", ARCHIVE_PATH,
+        "-exportPath", EXPORT_DIR,
+        "-exportOptionsPlist", EXPORT_OPTIONS
+      )
+    end
+
+    UI.user_error!("Exported app not found at #{APP_PATH}") unless File.exist?(APP_PATH)
+    verify_app_signature!(APP_PATH)
+  end
+
+  desc "Notarize macos-clean.app, package signed macos-clean.dmg, notarize & staple DMG"
+  lane :package_dmg do |options|
+    UI.user_error!("Missing #{APP_PATH}. Run `fastlane build` first.") unless File.exist?(APP_PATH)
+
+    notarize_enabled = options[:notarize].nil? ? notary_credentials_configured? : options[:notarize]
+    notarize_script = File.join(ROOT_DIR, "scripts", "notarize.sh")
+    create_dmg_script = File.join(ROOT_DIR, "scripts", "create_dmg.sh")
+
+    Dir.chdir(ROOT_DIR) do
+      if notarize_enabled
+        app_zip = File.join(RELEASE_DIR, "macos-clean-app.zip")
+        FileUtils.rm_f(app_zip)
+        sh("ditto", "-c", "-k", "--keepParent", APP_PATH, app_zip)
+        sh(notarize_script, app_zip, APP_PATH)
+        FileUtils.rm_f(app_zip)
+      elsif options[:notarize] == false
+        UI.important("Skipping notarization (notarize:false). Users will see a Gatekeeper warning on download.")
+      else
+        UI.important("No Apple notarization credentials configured (NOTARY_PROFILE / ASC_KEY_* / APPLE_ID); skipping notarization. Run ./scripts/setup_notary.sh to enable Apple notarization.")
+      end
+
+      sh(create_dmg_script, APP_PATH, DMG_PATH, signing_identity)
+
+      if notarize_enabled
+        sh(notarize_script, DMG_PATH, DMG_PATH)
+        sh("spctl", "-a", "-vvv", "-t", "exec", APP_PATH)
+        sh("spctl", "-a", "-vvv", "-t", "open", "--context", "context:primary-signature", DMG_PATH)
+        UI.success("Gatekeeper assessment passed for both macos-clean.app and macos-clean.dmg!")
+      end
+
+      sha_digest = Actions.sh("shasum -a 256 #{Shellwords.escape(DMG_PATH)}", log: false).split.first
+      File.write(SHA_PATH, "#{sha_digest}  #{File.basename(DMG_PATH)}\n")
+      UI.message("SHA-256: #{sha_digest}  #{File.basename(DMG_PATH)}")
+    end
+  end
+
+  desc "Copy DMG & checksum to macos-clean-release, update landing page version, commit, and push"
+  lane :publish_release do |options|
+    UI.user_error!("Missing #{DMG_PATH}. Run `fastlane package_dmg` first.") unless File.exist?(DMG_PATH)
+
+    target_dir = release_repo_dir
+    UI.user_error!("Release repository directory not found at #{target_dir}") unless Dir.exist?(target_dir)
+
+    target_dmg = File.join(target_dir, File.basename(DMG_PATH))
+    target_sha = File.join(target_dir, File.basename(SHA_PATH))
+    FileUtils.cp(DMG_PATH, target_dmg)
+    FileUtils.cp(SHA_PATH, target_sha) if File.exist?(SHA_PATH)
+
+    version = options[:version]&.to_s || read_project_setting("MARKETING_VERSION")
+    index_html = File.join(target_dir, "index.html")
+    if File.exist?(index_html)
+      html = File.read(index_html)
+      updated_html = html
+        .gsub(%r{(<span class="version-pill">)v[^<]+(</span>)}, "\\1v#{version}\\2")
+        .gsub(/v\d+(?:\.\d+)*(\s*·\s*Universal)/, "v#{version}\\1")
+      File.write(index_html, updated_html) if updated_html != html
+    end
+
+    commit_message = options[:commit_message]&.to_s || "Release macos-clean v#{version}"
+    Dir.chdir(target_dir) do
+      sh("git", "add", "-A")
+      if system("git diff --cached --quiet")
+        UI.message("No changes to commit in #{target_dir}")
+      else
+        sh("git", "commit", "-m", commit_message)
+      end
+      sh("git", "push", "-u", "origin", "main") unless options[:skip_push]
+    end
+
+    owner, repo_name = github_repo.split("/", 2)
+    UI.success("Published build artifacts to #{target_dir}")
+    if owner && repo_name
+      UI.success("GitHub Pages DMG URL: https://#{owner}.github.io/#{repo_name}/macos-clean.dmg")
+    end
+  end
+
+  desc "Upload macos-clean.dmg to GitHub Releases via gh CLI"
+  lane :github_release do |options|
+    target_dir = release_repo_dir
+    dmg_path = [File.join(target_dir, "macos-clean.dmg"), DMG_PATH].find { |p| File.exist?(p) }
+    UI.user_error!("Missing macos-clean.dmg in #{target_dir} or #{RELEASE_DIR}. Run `fastlane package_dmg` first.") unless dmg_path
+
+    sha_path = ["#{dmg_path}.sha256", SHA_PATH].find { |p| File.exist?(p) }
+    version = options[:version]&.to_s || read_project_setting("MARKETING_VERSION")
+    tag = "v#{version}"
+    repo = github_repo
+    draft = options[:draft] ? true : false
+    prerelease = options[:prerelease] ? true : false
+
+    Dir.chdir(ROOT_DIR) do
+      sh("gh", "auth", "status")
+
+      sha = sha_path ? File.read(sha_path).split.first : ""
+      notarized = system("xcrun stapler validate #{Shellwords.escape(dmg_path)} >/dev/null 2>&1")
+      signing_note = if notarized
+        "Universal macOS app (Apple Silicon & Intel), signed with Developer ID and notarized by Apple."
+      else
+        "Universal macOS app (Apple Silicon & Intel), signed with Developer ID Application (Hardened Runtime)."
+      end
+      notes = <<~NOTES
+        ## macos-clean #{tag}
+
+        - #{signing_note}
+        - Install: open `macos-clean.dmg` and drag `macos-clean.app` to `/Applications`.
+
+        ### Verification
+        ```bash
+        codesign -dv --verbose=4 /Applications/macos-clean.app
+        ```
+        SHA-256 (`macos-clean.dmg`): `#{sha}`
+      NOTES
+
+      assets = [dmg_path, sha_path].compact
+      exists = system("gh release view #{Shellwords.escape(tag)} --repo #{Shellwords.escape(repo)} >/dev/null 2>&1")
+      if exists
+        UI.important("Release #{tag} already exists on #{repo}; uploading updated assets...")
+        sh("gh", "release", "upload", tag, *assets, "--repo", repo, "--clobber")
+      else
+        cmd = [
+          "gh", "release", "create", tag,
+          *assets,
+          "--repo", repo,
+          "--title", "macos-clean #{tag}",
+          "--notes", notes,
+          "--generate-notes"
+        ]
+        cmd << "--draft" if draft
+        cmd << "--prerelease" if prerelease
+        sh(*cmd)
+      end
+
+      UI.success("Published #{tag} to https://github.com/#{repo}/releases/tag/#{tag}")
+      UI.success("Direct download URL: https://github.com/#{repo}/releases/latest/download/macos-clean.dmg")
+    end
+  end
+
+  desc "Full release pipeline: test -> Developer ID build -> notarize & DMG -> publish to release repo -> GitHub Release"
+  lane :release do |options|
+    build(options)
+    package_dmg(options)
+    publish_release(options)
+    github_release(options) unless options[:skip_github_release]
+  end
+end

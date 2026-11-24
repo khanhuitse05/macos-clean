@@ -13,3 +13,12 @@ App/macos-clean.entitlements
 reference-clean/
 SWIFTUI-REBUILD-PREP.md
 ROADMAP.md
+*.dmg
+*.p8
+*.p12
+*.cer
+fastlane/.env
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
