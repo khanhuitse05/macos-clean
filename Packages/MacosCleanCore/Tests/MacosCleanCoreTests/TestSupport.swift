@@ -2,7 +2,7 @@ import Foundation
 @testable import MacosCleanCore
 
 /// A throwaway directory tree under the system temp folder, removed on deinit.
-final class TempTree {
+final class TempTree: Sendable {
     let root: URL
 
     init() throws {

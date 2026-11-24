@@ -67,6 +67,10 @@ struct ContentView: View {
             // Start watching Applications right away so removals are noticed in any section.
             state.uninstaller.start()
         }
+        .task {
+            // Last run's results appear at once; a background rescan then refreshes them.
+            await state.storage.restoreAndRefresh()
+        }
     }
 }
 

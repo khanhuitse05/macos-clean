@@ -56,7 +56,7 @@ struct StorageManagerView: View {
             }
         }
         .navigationTitle("Storage Manager")
-        .navigationSubtitle(model.hasAnyResult ? "\(model.foundBytes.fileSize) found" : "Not scanned yet")
+        .navigationSubtitle(subtitle)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 Menu("Select", systemImage: "checklist") {
@@ -81,6 +81,16 @@ struct StorageManagerView: View {
             }
         }
         .quickLookPreview($previewURL)
+    }
+
+    private var subtitle: String {
+        guard model.hasAnyResult else { return "Not scanned yet" }
+        let found = "\(model.foundBytes.fileSize) found"
+        if !model.refreshing.isEmpty { return "\(found) · Updating…" }
+        if let date = model.oldestScan, date.timeIntervalSinceNow < -60 {
+            return "\(found) · Scanned \(date.formatted(.relative(presentation: .named)))"
+        }
+        return found
     }
 }
 
@@ -210,6 +220,11 @@ private struct CategoryRow: View {
             ProgressView().controlSize(.small)
         case .scanned(let result):
             HStack(spacing: 8) {
+                if model.isRefreshing(category) {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .help("Updating the results saved last time…")
+                }
                 if !result.deniedPaths.isEmpty {
                     Image(systemName: "lock.fill")
                         .foregroundStyle(.orange)
@@ -302,7 +317,13 @@ private struct EntryRow: View {
         Binding(
             get: { expanded.contains(entry.path) },
             set: { open in
-                if open { expanded.insert(entry.path) } else { expanded.remove(entry.path) }
+                if open {
+                    // Prefetched children appear in the same frame, without a "Loading…" row.
+                    model.expand(entry)
+                    expanded.insert(entry.path)
+                } else {
+                    expanded.remove(entry.path)
+                }
             }
         )
     }

@@ -143,6 +143,10 @@ final class FileBrowserModel {
         guard !Task.isCancelled else { return }
         folders[folder] = FolderState(entries: measured.entries, isMeasured: true, isDenied: false)
         deniedPaths.formUnion(measured.deniedPaths)
+        // Subfolders were walked to measure them; keep their listings so opening them is instant.
+        for (path, entries) in measured.prefetched where folders[path]?.isMeasured != true {
+            folders[path] = FolderState(entries: entries, isMeasured: true, isDenied: false)
+        }
     }
 
     private func cancelLoads(keeping folders: Set<String>) {

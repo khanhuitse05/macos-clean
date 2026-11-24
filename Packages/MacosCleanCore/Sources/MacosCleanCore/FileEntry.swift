@@ -1,7 +1,7 @@
 import Foundation
 
 /// One file or folder found by a scan. Identified by its absolute path.
-public struct FileEntry: Identifiable, Hashable, Sendable {
+public struct FileEntry: Identifiable, Hashable, Sendable, Codable {
     public let path: String
     /// Bytes actually used on disk (allocated size), not the logical length. Cloud placeholders
     /// (iCloud, OneDrive, Dropbox) report ~0, which is what deleting them would free.

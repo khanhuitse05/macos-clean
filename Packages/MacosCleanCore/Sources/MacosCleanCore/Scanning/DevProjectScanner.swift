@@ -37,38 +37,48 @@ public struct DevProjectScanner: Sendable {
     /// are never counted twice.
     @concurrent
     public func scan() async -> [FileEntry] {
-        var flagged: [URL] = []
-        collect(in: root, depth: 0, inheritedIgnores: [], into: &flagged)
-        let sizes = await SizeCalculator.measureAll(flagged)
-        return zip(flagged, sizes)
-            .filter { $0.1.bytes > 0 }
-            .map { FileEntry(path: $0.0.path, sizeBytes: $0.1.bytes, isDirectory: true) }
-            .sortedBySizeDescending()
+        await scanDetailed().entries
     }
 
-    private func collect(in dir: URL, depth: Int, inheritedIgnores: [String], into flagged: inout [URL]) {
-        guard depth <= maxDepth, !Task.isCancelled else { return }
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
-        guard let children = try? FileManager.default.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: keys, options: []
-        ) else { return }
+    /// Flagged folders plus the listings collected while measuring them.
+    @concurrent
+    func scanDetailed() async -> (entries: [FileEntry], listings: [String: [FileEntry]]) {
+        var flagged: [String] = []
+        var rootPath = root.path
+        while rootPath.count > 1, rootPath.hasSuffix("/") { rootPath.removeLast() }
+        collect(in: rootPath, depth: 0, inheritedIgnores: [], into: &flagged)
+        let sizes = await SizeCalculator.measureAll(
+            flagged.map { URL(fileURLWithPath: $0) }, listingDepth: CategoryScanner.prefetchDepth
+        )
+        var listings: [String: [FileEntry]] = [:]
+        for size in sizes { listings.merge(size.listings) { $1 } }
+        let entries = zip(flagged, sizes)
+            .filter { $0.1.bytes > 0 }
+            .map { FileEntry(path: $0.0, sizeBytes: $0.1.bytes, isDirectory: true) }
+            .sortedBySizeDescending()
+        return (entries, listings)
+    }
 
-        let names = children.map(\.lastPathComponent)
-        let isProject = names.contains(".git") || names.contains(where: Self.isManifestName)
+    /// One bulk read per folder: names and types come back together, so there's no per-child
+    /// `stat` or URL resource lookup while crawling the home folder.
+    private func collect(in dir: String, depth: Int, inheritedIgnores: [String], into flagged: inout [String]) {
+        guard depth <= maxDepth, !Task.isCancelled else { return }
+        let listing = DirectoryWalker.children(of: dir)
+        guard listing.error == nil else { return }
+
+        let isProject = listing.children.contains { $0.name == ".git" || Self.isManifestName($0.name) }
 
         var ignores = inheritedIgnores
-        if let body = try? String(contentsOf: dir.appendingPathComponent(".gitignore"), encoding: .utf8) {
+        if listing.children.contains(where: { $0.name == ".gitignore" }),
+           let body = try? String(contentsOfFile: DirectoryWalker.join(dir, ".gitignore"), encoding: .utf8) {
             ignores += Self.parseGitignore(body)
         }
 
-        for child in children {
-            guard let values = try? child.resourceValues(forKeys: Set(keys)),
-                  values.isDirectory == true, values.isSymbolicLink != true
-            else { continue }
-            switch Self.classify(child.lastPathComponent, parentIsProject: isProject, ignores: ignores) {
+        for child in listing.children where child.kind == .directory {
+            switch Self.classify(child.name, parentIsProject: isProject, ignores: ignores) {
             case .skip: continue
-            case .flag: flagged.append(child)
-            case .recurse: collect(in: child, depth: depth + 1, inheritedIgnores: ignores, into: &flagged)
+            case .flag: flagged.append(child.path)
+            case .recurse: collect(in: child.path, depth: depth + 1, inheritedIgnores: ignores, into: &flagged)
             }
         }
     }
