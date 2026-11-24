@@ -63,6 +63,22 @@ enum MascotDirector {
                 hasBottomBar: !model.checked.isEmpty
             )
 
+        case .duplicates:
+            let model = state.duplicates
+            let mood = MascotMood.resolve(MascotInputs(
+                isScanning: model.isScanning,
+                hasResults: model.hasScanned,
+                foundBytes: model.wastedBytes,
+                isTrashing: trashing,
+                isAccessBlocked: blocked && !model.deniedPaths.isEmpty
+            ))
+            return MascotScene(
+                section: section, mood: mood,
+                selectionShare: share(model.checkedBytes, of: model.wastedBytes),
+                selectedCount: model.checked.count,
+                hasBottomBar: !model.checked.isEmpty
+            )
+
         case .fileBrowser:
             let model = state.fileBrowser
             let selected = model.selectedEntry

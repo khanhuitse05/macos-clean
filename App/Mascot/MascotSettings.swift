@@ -36,17 +36,6 @@ struct MascotCommands: Commands {
     }
 }
 
-struct SettingsView: View {
-    var body: some View {
-        Form {
-            MascotSettingsSection()
-        }
-        .formStyle(.grouped)
-        .frame(width: 440)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-}
-
 enum MascotCorner: String, CaseIterable {
     case topLeading, topTrailing, bottomLeading, bottomTrailing
 

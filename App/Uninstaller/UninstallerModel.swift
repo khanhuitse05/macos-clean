@@ -53,6 +53,9 @@ final class UninstallerModel {
     var selectedID: String?
 
     private(set) var sizes: [String: Int64] = [:]
+    /// When each app was last opened, from Spotlight, keyed by bundle path. Missing when
+    /// Spotlight doesn't know (never opened, or not indexed).
+    private(set) var lastUsed: [String: Date] = [:]
     private(set) var leftovers: [String: AppLeftovers] = [:]
     private(set) var loadingLeftovers: Set<String> = []
     private(set) var checked: [String: Set<String>] = [:]
@@ -66,6 +69,7 @@ final class UninstallerModel {
     private var watchTask: Task<Void, Never>?
     private var sizeTask: Task<Void, Never>?
     private var knownRemovedIDs: Set<String>?
+    private var appliedExclusions = ExclusionStore.shared.list
 
     // MARK: Lifecycle
 
@@ -101,6 +105,29 @@ final class UninstallerModel {
         if let selectedID, !liveIDs.contains(selectedID) { self.selectedID = nil }
         refreshVisible()
         computeSizes()
+        loadLastUsedDates()
+    }
+
+    /// Reads `kMDItemLastUsedDate` for every app off the main thread.
+    private func loadLastUsedDates() {
+        let paths = apps.filter(\.canUninstall).map(\.path)
+        Task { [weak self] in
+            let dates = await Self.lastUsedDates(paths)
+            guard let self, dates != lastUsed else { return }
+            lastUsed = dates
+        }
+    }
+
+    @concurrent
+    private nonisolated static func lastUsedDates(_ paths: [String]) async -> [String: Date] {
+        var result: [String: Date] = [:]
+        for path in paths {
+            guard let item = NSMetadataItem(url: URL(fileURLWithPath: path)),
+                  let date = item.value(forAttribute: "kMDItemLastUsedDate") as? Date
+            else { continue }
+            result[path] = date
+        }
+        return result
     }
 
     private func refreshVisible() {
@@ -172,11 +199,41 @@ final class UninstallerModel {
         if case .app(let app) = item, !app.canUninstall { return }
         guard leftovers[item.id] == nil, !loadingLeftovers.contains(item.id) else { return }
         loadingLeftovers.insert(item.id)
-        let result = await leftoverScanner.scan(bundleID: item.bundleID, name: item.name, appURL: item.appURL)
+        let scanned = await leftoverScanner.scan(bundleID: item.bundleID, name: item.name, appURL: item.appURL)
         loadingLeftovers.remove(item.id)
+        let result = Self.removingExcluded(scanned, keeping: item.appURL, exclusions: ExclusionStore.shared.list)
         leftovers[item.id] = result
         // Everything except Supporting Files (may hold the user's own documents) starts ticked.
         checked[item.id] = Set(result.groups.filter { !$0.kind.mayContainUserData }.flatMap { $0.entries.map(\.path) })
+    }
+
+    /// Leftovers that overlap an excluded folder are never offered. The app bundle itself stays.
+    private static func removingExcluded(_ leftovers: AppLeftovers, keeping appURL: URL?, exclusions: ExclusionList) -> AppLeftovers {
+        guard !exclusions.isEmpty else { return leftovers }
+        let appPath = appURL?.standardizedFileURL.path
+        let groups = leftovers.groups.compactMap { group -> LeftoverGroup? in
+            let kept = group.entries.filter { $0.path == appPath || !exclusions.overlaps($0.path) }
+            return kept.isEmpty ? nil : LeftoverGroup(kind: group.kind, entries: kept)
+        }
+        return AppLeftovers(bundleID: leftovers.bundleID, groups: groups, deniedPaths: leftovers.deniedPaths)
+    }
+
+    /// Re-filters loaded leftovers at once. When folders come off the list, cached leftovers are
+    /// dropped (and the selected app's rescanned) so what was hidden comes back.
+    func setExclusions(_ exclusions: ExclusionList) {
+        let old = appliedExclusions
+        appliedExclusions = exclusions
+        if old.paths.isSubset(of: exclusions.paths) {
+            for (id, current) in leftovers {
+                let appURL = apps.first { UninstallItem.app($0).id == id }?.url
+                let filtered = Self.removingExcluded(current, keeping: appURL, exclusions: exclusions)
+                leftovers[id] = filtered
+                checked[id] = checked[id]?.intersection(filtered.allEntries.map(\.path))
+            }
+        } else {
+            for id in leftovers.keys where id != selectedID { leftovers[id] = nil; checked[id] = nil }
+            if let item = selectedItem { Task { await rescanLeftovers(for: item) } }
+        }
     }
 
     func rescanLeftovers(for item: UninstallItem) async {

@@ -11,22 +11,25 @@ public struct CategoryScanResult: Sendable, Equatable, Codable {
     /// Children of folders inside the entries, collected while measuring them, so expanding a
     /// folder needs no new walk. Keyed by folder path, largest first. Not persisted.
     public let prefetched: [String: [FileEntry]]
+    /// For the simulators category: what each entry is (keyed the same as `entries`).
+    public let simulators: [SimulatorItem]
 
     public var totalBytes: Int64 { entries.totalBytes }
 
     public init(
         categoryID: String, entries: [FileEntry], deniedPaths: [String], scannedAt: Date = .now,
-        prefetched: [String: [FileEntry]] = [:]
+        prefetched: [String: [FileEntry]] = [:], simulators: [SimulatorItem] = []
     ) {
         self.categoryID = categoryID
         self.entries = entries
         self.deniedPaths = deniedPaths
         self.scannedAt = scannedAt
         self.prefetched = prefetched
+        self.simulators = simulators
     }
 
     private enum CodingKeys: String, CodingKey {
-        case categoryID, entries, deniedPaths, scannedAt
+        case categoryID, entries, deniedPaths, scannedAt, simulators
     }
 
     public init(from decoder: any Decoder) throws {
@@ -35,7 +38,8 @@ public struct CategoryScanResult: Sendable, Equatable, Codable {
             categoryID: try container.decode(String.self, forKey: .categoryID),
             entries: try container.decode([FileEntry].self, forKey: .entries),
             deniedPaths: try container.decode([String].self, forKey: .deniedPaths),
-            scannedAt: try container.decode(Date.self, forKey: .scannedAt)
+            scannedAt: try container.decode(Date.self, forKey: .scannedAt),
+            simulators: try container.decodeIfPresent([SimulatorItem].self, forKey: .simulators) ?? []
         )
     }
 
@@ -45,6 +49,16 @@ public struct CategoryScanResult: Sendable, Equatable, Codable {
         try container.encode(entries, forKey: .entries)
         try container.encode(deniedPaths, forKey: .deniedPaths)
         try container.encode(scannedAt, forKey: .scannedAt)
+        if !simulators.isEmpty { try container.encode(simulators, forKey: .simulators) }
+    }
+
+    /// The same result with only `entries` kept (and their simulator items).
+    public func keeping(_ entries: [FileEntry]) -> CategoryScanResult {
+        let paths = Set(entries.map(\.path))
+        return CategoryScanResult(
+            categoryID: categoryID, entries: entries, deniedPaths: deniedPaths, scannedAt: scannedAt,
+            simulators: simulators.filter { paths.contains($0.path) }
+        )
     }
 }
 
@@ -69,10 +83,18 @@ public struct CategoryScanner: Sendable {
 
     public let expander: PathExpander
     public let database: JunkDatabase
+    /// Folders never scanned or suggested. Entries that overlap one are dropped.
+    public let exclusions: ExclusionList
+    public let simulatorInventory: SimulatorInventory
 
-    public init(expander: PathExpander = PathExpander(), database: JunkDatabase = .bundled) {
+    public init(
+        expander: PathExpander = PathExpander(), database: JunkDatabase = .bundled, exclusions: ExclusionList = .empty,
+        simulatorInventory: SimulatorInventory = SimulatorInventory()
+    ) {
         self.expander = expander
         self.database = database
+        self.exclusions = exclusions
+        self.simulatorInventory = simulatorInventory
     }
 
     /// - Parameter progress: receives running totals while the scan measures.
@@ -80,13 +102,21 @@ public struct CategoryScanner: Sendable {
     public func scan(_ category: CleanupCategory, progress: ScanProgress? = nil) async -> CategoryScanResult {
         switch category.source {
         case .devProjects:
-            let found = await DevProjectScanner(root: URL(fileURLWithPath: expander.home)).scanDetailed(progress: progress)
+            let found = await DevProjectScanner(root: URL(fileURLWithPath: expander.home), exclusions: exclusions)
+                .scanDetailed(progress: progress)
             return CategoryScanResult(
-                categoryID: category.id, entries: found.entries, deniedPaths: [], prefetched: found.listings
+                categoryID: category.id, entries: exclusions.filter(found.entries), deniedPaths: [], prefetched: found.listings
+            )
+
+        case .simulators:
+            let items = await simulatorInventory.list().filter { !exclusions.overlaps($0.path) }
+            progress?.add(bytes: items.reduce(0) { $0 + $1.sizeBytes }, files: items.count)
+            return CategoryScanResult(
+                categoryID: category.id, entries: items.map(\.entry), deniedPaths: [], simulators: items
             )
 
         case .appCaches:
-            let urls = database.safeCacheEntries(expander: expander)
+            let urls = database.safeCacheEntries(expander: expander).filter { !exclusions.overlaps($0.path) }
             let measured = await measure(urls, progress: progress)
             return CategoryScanResult(
                 categoryID: category.id,
@@ -102,8 +132,10 @@ public struct CategoryScanner: Sendable {
             for raw in rawPaths {
                 guard !Task.isCancelled else { break }
                 let root = expander.expand(raw)
+                // An excluded root (or one inside an excluded folder) isn't walked at all.
+                guard !exclusions.isExcluded(root.standardizedFileURL.path) else { continue }
                 let listing = await list(root, progress: progress)
-                entries += listing.entries
+                entries += exclusions.filter(listing.entries)
                 denied += listing.deniedPaths
                 prefetched.merge(listing.prefetched) { $1 }
             }

@@ -6,6 +6,10 @@ struct StorageManagerView: View {
     let model: StorageModel
     let trash: TrashCoordinator
     let access: AccessModel
+    let suggestions: SuggestionsModel
+    let uninstaller: UninstallerModel
+    /// Opens an app (by bundle path) in the Uninstaller.
+    let onReviewApp: (String) -> Void
 
     @State private var expanded: Set<String> = []
     @State private var previewURL: URL?
@@ -19,7 +23,15 @@ struct StorageManagerView: View {
                 volume: model.volume,
                 hasResults: model.hasAnyResult,
                 isScanning: model.isScanningAll,
+                history: trash.history.history,
                 liveBytes: { model.liveScannedBytes }
+            )
+            .listRowSeparator(.hidden)
+
+            SuggestionCards(
+                suggestions: suggestions.suggestions(storage: model, uninstaller: uninstaller),
+                onAction: perform,
+                onDismiss: { suggestions.dismiss($0) }
             )
             .listRowSeparator(.hidden)
 
@@ -85,6 +97,17 @@ struct StorageManagerView: View {
         .quickLookPreview($previewURL)
     }
 
+    private func perform(_ suggestion: Suggestion) {
+        switch suggestion.action {
+        case .reviewApp(let path):
+            onReviewApp(path)
+        case .select(let categoryID, let paths):
+            model.select(paths: paths)
+            // Show what was ticked.
+            expanded.insert(categoryID)
+        }
+    }
+
     private var subtitle: String {
         guard model.hasAnyResult else { return "Not scanned yet" }
         let found = "\(model.foundBytes.fileSize) found"
@@ -102,6 +125,7 @@ private struct StorageSummaryHeader: View {
     let volume: VolumeUsage?
     let hasResults: Bool
     let isScanning: Bool
+    let history: CleaningHistory
     /// Sampled while the first scan runs.
     let liveBytes: () -> Int64
 
@@ -139,6 +163,8 @@ private struct StorageSummaryHeader: View {
                 StorageBar(volume: volume, foundBytes: hasResults ? foundBytes : 0, selectedBytes: selectedBytes)
                     .padding(.top, 8)
             }
+            CleaningHistoryLine(history: history)
+                .padding(.top, 2)
         }
         .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 8)
@@ -406,16 +432,21 @@ private struct EntryRow: View {
     }
 
     private var label: some View {
-        HStack(spacing: 8) {
+        let simulator = model.simulatorItem(at: entry.path)
+        return HStack(spacing: 8) {
             TriStateCheckbox(state: model.checkState(of: entry)) { model.toggle(entry) }
-            FileIcon(path: entry.path, isDirectory: entry.isDirectory)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(entry.name).lineLimit(1).truncationMode(.middle)
-                Text(entry.parentPath.abbreviatingHome)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
+            if let simulator {
+                SimulatorLabel(item: simulator)
+            } else {
+                FileIcon(path: entry.path, isDirectory: entry.isDirectory)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(entry.name).lineLimit(1).truncationMode(.middle)
+                    Text(entry.parentPath.abbreviatingHome)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
             }
             Spacer(minLength: 8)
             Text(entry.sizeBytes.fileSize)
@@ -427,8 +458,10 @@ private struct EntryRow: View {
         .contextMenu {
             FileContextMenu(
                 path: entry.path,
-                onQuickLook: onQuickLook,
-                onTrash: { trash.request(model.trashRequest(for: entry), from: origin.rect) }
+                onQuickLook: simulator == nil ? onQuickLook : nil,
+                onTrash: { trash.request(model.trashRequest(for: entry), from: origin.rect) },
+                canExclude: simulator == nil,
+                trashTitle: simulator == nil ? "Move to Trash…" : "Delete with simctl…"
             )
         }
     }
@@ -449,6 +482,45 @@ private struct EntryRow: View {
     }
 }
 
+/// A simulator runtime or device row: what it is instead of a file name.
+private struct SimulatorLabel: View {
+    let item: SimulatorItem
+
+    var body: some View {
+        Image(systemName: item.kind == .runtime ? "shippingbox.fill" : "iphone")
+            .foregroundStyle(.secondary)
+            .frame(width: 18, height: 18)
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                Text(item.name).lineLimit(1)
+                if !item.isAvailable {
+                    Text("Unavailable")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(.orange.opacity(0.2), in: .capsule)
+                        .foregroundStyle(.orange)
+                        .help("Its runtime is gone, so this device can't run anymore.")
+                }
+            }
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    private var subtitle: String {
+        var parts = [item.detail]
+        if let used = item.lastUsed {
+            parts.append("last used \(used.formatted(.relative(presentation: .named)))")
+        } else {
+            parts.append("never used")
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
 enum CategoryStyle {
     static func symbol(for id: String) -> String {
         switch id {
@@ -459,6 +531,9 @@ enum CategoryStyle {
         case "xcode-archives": "tray.full"
         case "xcode-device-support": "iphone"
         case "simulator-caches": "ipad.and.iphone"
+        case "simulators": "iphone.badge.play"
+        case "xcode-previews": "eye.square"
+        case "ios-updates": "arrow.down.app"
         case "spm-cache": "swift"
         case "homebrew-cache": "mug"
         case "docker-data": "cube"

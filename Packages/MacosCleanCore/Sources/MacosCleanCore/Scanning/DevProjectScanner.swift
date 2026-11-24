@@ -27,10 +27,12 @@ public struct DevProjectScanner: Sendable {
 
     public let root: URL
     public let maxDepth: Int
+    public let exclusions: ExclusionList
 
-    public init(root: URL, maxDepth: Int = 12) {
+    public init(root: URL, maxDepth: Int = 12, exclusions: ExclusionList = .empty) {
         self.root = root
         self.maxDepth = maxDepth
+        self.exclusions = exclusions
     }
 
     /// Flagged folders, largest first. Descent stops at each flagged folder, so nested artifacts
@@ -46,6 +48,7 @@ public struct DevProjectScanner: Sendable {
         var flagged: [String] = []
         var rootPath = root.path
         while rootPath.count > 1, rootPath.hasSuffix("/") { rootPath.removeLast() }
+        guard !exclusions.isExcluded(rootPath) else { return ([], [:]) }
         collect(in: rootPath, depth: 0, inheritedIgnores: [], into: &flagged)
         let sizes = await SizeCalculator.measureAll(
             flagged.map { URL(fileURLWithPath: $0) }, listingDepth: CategoryScanner.prefetchDepth, progress: progress
@@ -75,6 +78,7 @@ public struct DevProjectScanner: Sendable {
         }
 
         for child in listing.children where child.kind == .directory {
+            if exclusions.contains(folder: child.path) { continue }
             switch Self.classify(child.name, parentIsProject: isProject, ignores: ignores) {
             case .skip: continue
             case .flag: flagged.append(child.path)

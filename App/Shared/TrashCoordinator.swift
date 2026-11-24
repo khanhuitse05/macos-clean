@@ -15,8 +15,12 @@ final class TrashCoordinator {
         case erase
         /// Delete everything in the Trash for good.
         case emptyTrash
+        /// Remove simulator runtimes/devices with `simctl` (no Trash involved).
+        case removeSimulators
 
         var isPermanent: Bool { self != .moveToTrash }
+        /// Deletes from the Trash itself, so the sidebar bin shows the progress.
+        var touchesTrashBin: Bool { self == .erase || self == .emptyTrash }
     }
 
     struct Request: Identifiable {
@@ -32,6 +36,8 @@ final class TrashCoordinator {
         var origin: CGRect?
         /// Runs after the user confirms, before anything is moved. Return false to abort.
         var prepare: (@MainActor () async -> Bool)?
+        /// Simulator runtimes/devices removed with `simctl` after `paths` move to the Trash.
+        var simulators: [SimulatorItem] = []
         let onFinish: @MainActor (CleanSummary) -> Void
     }
 
@@ -47,6 +53,10 @@ final class TrashCoordinator {
         let bytes: Int64
         let count: Int
         var action: Action = .moveToTrash
+        /// Of `count`, how many were simulators removed for good.
+        var simulatorCount = 0
+        /// Everything cleaned with macos-clean so far, including this clean.
+        var lifetimeBytes: Int64 = 0
     }
 
     /// Drives the confirmation dialog.
@@ -67,10 +77,17 @@ final class TrashCoordinator {
 
     private let cleaner: Cleaner
     private let emptier: TrashEmptier
+    private let simulatorRemover: SimulatorRemover
+    let history: CleaningHistoryModel
 
-    init(cleaner: Cleaner = Cleaner(), emptier: TrashEmptier = TrashCoordinator.defaultEmptier) {
+    init(
+        cleaner: Cleaner = Cleaner(), emptier: TrashEmptier = TrashCoordinator.defaultEmptier,
+        simulatorRemover: SimulatorRemover = SimulatorRemover(), history: CleaningHistoryModel = .shared
+    ) {
         self.cleaner = cleaner
         self.emptier = emptier
+        self.simulatorRemover = simulatorRemover
+        self.history = history
         self.bin = TrashBinModel(trashURL: emptier.trashURL)
     }
 
@@ -91,7 +108,7 @@ final class TrashCoordinator {
 
     /// Asks for confirmation. Nothing is touched until ``confirm(_:)``.
     func request(_ request: Request, from origin: CGRect? = nil) {
-        guard request.action == .emptyTrash || !request.paths.isEmpty, !isRunning else { return }
+        guard request.action == .emptyTrash || !request.paths.isEmpty || !request.simulators.isEmpty, !isRunning else { return }
         var request = request
         if let origin { request.origin = origin }
         pending = request
@@ -129,50 +146,56 @@ final class TrashCoordinator {
         if let prepare = request.prepare, await prepare() == false { return }
         phase = .running(request.action, nil)
         celebration = nil
-        let flew = request.action == .moveToTrash && launchFlight(for: request)
-        if request.action.isPermanent { bin.beginEmptying() }
+        let flew = request.action == .moveToTrash && !request.paths.isEmpty && launchFlight(for: request)
+        if request.action.touchesTrashBin { bin.beginEmptying() }
         let sheetTask = Task { [weak self] in
             try? await Task.sleep(for: Self.sheetDelay)
             guard !Task.isCancelled, let self, isRunning else { return }
             isShowingProgress = true
         }
-        let summary: CleanSummary
-        do {
-            let events = switch request.action {
-            case .moveToTrash: try cleaner.trash(request.paths, confirm: true)
-            case .erase: try emptier.erase(request.paths, confirm: true)
-            case .emptyTrash: try emptier.erase(nil, confirm: true)
-            }
-            var last = CleanSummary(outcomes: [])
-            for await event in events {
-                switch event {
-                case .progress(let progress):
-                    phase = .running(request.action, progress)
-                    if request.action.isPermanent { bin.emptying(progress) }
-                case .finished(let result):
-                    last = result
+        var outcomes: [DeleteOutcome] = []
+        if !request.paths.isEmpty || request.action == .emptyTrash {
+            outcomes += await consume(request.action, paths: request.paths) { [cleaner, emptier] in
+                switch request.action {
+                case .moveToTrash: try cleaner.trash(request.paths, confirm: true)
+                case .erase: try emptier.erase(request.paths, confirm: true)
+                case .emptyTrash: try emptier.erase(nil, confirm: true)
+                case .removeSimulators: AsyncStream<CleanEvent> { $0.finish() }
                 }
             }
-            summary = last
-        } catch {
-            summary = CleanSummary(outcomes: request.paths.map {
-                DeleteOutcome(path: $0, success: false, error: error.localizedDescription)
-            })
         }
+        var simulatorOutcomes: [DeleteOutcome] = []
+        if !request.simulators.isEmpty {
+            simulatorOutcomes = await consume(.removeSimulators, paths: request.simulators.map(\.path)) { [simulatorRemover] in
+                try simulatorRemover.remove(request.simulators, confirm: true)
+            }
+            outcomes += simulatorOutcomes
+        }
+        let summary = CleanSummary(outcomes: outcomes)
+        let simulatorSummary = CleanSummary(outcomes: simulatorOutcomes)
         sheetTask.cancel()
-        if request.action.isPermanent {
+        if request.action.touchesTrashBin {
             bin.finishEmptying(summary)
-        } else if !flew, summary.succeeded > 0 {
+        } else if request.action == .moveToTrash, !flew {
             // No flight (Reduce Motion): the bin still takes the bytes.
-            bin.receive(bytes: summary.bytesFreed, count: summary.succeeded)
+            let moved = summary.succeeded - simulatorSummary.succeeded
+            if moved > 0 { bin.receive(bytes: summary.bytesFreed - simulatorSummary.bytesFreed, count: moved) }
         }
+        history.record(
+            request.action, summary: summary,
+            simulatorBytes: simulatorSummary.bytesFreed, simulatorCount: simulatorSummary.succeeded
+        )
         // Rows leave the lists with an animation in every feature.
         Motion.animate { request.onFinish(summary) }
         if summary.failed == 0, summary.succeeded > 0 {
             // Everything worked: close the sheet (if it opened) and celebrate instead.
             phase = .idle
             isShowingProgress = false
-            let shown = Celebration(bytes: summary.bytesFreed, count: summary.succeeded, action: request.action)
+            let shown = Celebration(
+                bytes: summary.bytesFreed, count: summary.succeeded, action: request.action,
+                simulatorCount: simulatorSummary.succeeded,
+                lifetimeBytes: history.history.lifetimeCleanedBytes
+            )
             Motion.animate(.spring(duration: 0.5, bounce: 0.3)) { celebration = shown }
             Task { [weak self] in
                 try? await Task.sleep(for: Self.celebrationDuration)
@@ -186,6 +209,27 @@ final class TrashCoordinator {
             // Failures need reading: show the results sheet.
             phase = .finished(request.action, summary)
             isShowingProgress = true
+        }
+    }
+
+    /// Runs one removal stream to the end, mirroring its progress in `phase` (and the bin).
+    private func consume(
+        _ action: Action, paths: [String], _ makeEvents: () throws -> AsyncStream<CleanEvent>
+    ) async -> [DeleteOutcome] {
+        do {
+            var last = CleanSummary(outcomes: [])
+            for await event in try makeEvents() {
+                switch event {
+                case .progress(let progress):
+                    phase = .running(action, progress)
+                    if action.touchesTrashBin { bin.emptying(progress) }
+                case .finished(let result):
+                    last = result
+                }
+            }
+            return last.outcomes
+        } catch {
+            return paths.map { DeleteOutcome(path: $0, success: false, error: error.localizedDescription) }
         }
     }
 
@@ -235,6 +279,45 @@ extension TrashCoordinator.Request {
             message: message,
             confirmTitle: "Move to Trash",
             bytes: bytes,
+            onFinish: onFinish
+        )
+    }
+
+    /// Trash moves plus simulators removed with `simctl`. Simulators alone get "Delete" wording;
+    /// mixed requests say which part can't be restored.
+    static func cleaning(
+        _ paths: [String], bytes: Int64, simulators: [SimulatorItem], extraMessage: String? = nil,
+        onFinish: @escaping @MainActor (CleanSummary) -> Void
+    ) -> Self {
+        guard !simulators.isEmpty else {
+            return .items(paths, bytes: bytes, extraMessage: extraMessage, onFinish: onFinish)
+        }
+        let simulatorBytes = simulators.reduce(0) { $0 + $1.sizeBytes }
+        let simulatorWhat = simulators.count == 1
+            ? "“\(simulators[0].name)”"
+            : "\(simulators.count.formatted()) simulator items"
+        if paths.isEmpty {
+            return .init(
+                action: .removeSimulators,
+                paths: [],
+                title: "Delete \(simulatorWhat) (\(simulatorBytes.fileSize))?",
+                message: "Simulators are removed with Xcode's simctl and can't be restored from the Trash. Runtimes can be downloaded again in Xcode › Settings › Components.",
+                confirmTitle: "Delete",
+                bytes: simulatorBytes,
+                simulators: simulators,
+                onFinish: onFinish
+            )
+        }
+        let total = bytes + simulatorBytes
+        var message = "\(paths.count.formatted()) \(paths.count == 1 ? "item moves" : "items move") to the Trash, where you can restore them until you empty it. \(simulatorWhat) (\(simulatorBytes.fileSize)) \(simulators.count == 1 ? "is" : "are") deleted with Xcode's simctl and can't be restored."
+        if let extraMessage { message = extraMessage + "\n\n" + message }
+        return .init(
+            paths: paths,
+            title: "Clean \((paths.count + simulators.count).formatted()) items (\(total.fileSize))?",
+            message: message,
+            confirmTitle: "Clean",
+            bytes: total,
+            simulators: simulators,
             onFinish: onFinish
         )
     }
@@ -386,9 +469,17 @@ struct CelebrationToast: View {
 
     private var detail: String {
         let items = "\(celebration.count.formatted()) \(celebration.count == 1 ? "item" : "items")"
-        return permanent
-            ? "\(items) deleted permanently."
-            : "\(items). Empty the Trash to get the space back."
+        var text = switch celebration.action {
+        case .removeSimulators: "\(items) removed with simctl."
+        case .erase, .emptyTrash: "\(items) deleted permanently."
+        case .moveToTrash where celebration.simulatorCount > 0:
+            "\(items), \(celebration.simulatorCount.formatted()) of them simulators removed for good. Empty the Trash to get the rest back."
+        case .moveToTrash: "\(items). Empty the Trash to get the space back."
+        }
+        if !permanent || celebration.action == .removeSimulators, celebration.lifetimeBytes > celebration.bytes {
+            text += " \(celebration.lifetimeBytes.fileSize) cleaned with macos-clean so far."
+        }
+        return text
     }
 }
 
@@ -435,6 +526,7 @@ struct CleanProgressSheet: View {
         case .moveToTrash: "Moving to Trash…"
         case .erase: "Deleting…"
         case .emptyTrash: "Emptying the Trash…"
+        case .removeSimulators: "Deleting simulators…"
         }
     }
 

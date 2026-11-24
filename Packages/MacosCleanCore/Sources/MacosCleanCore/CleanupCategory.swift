@@ -25,6 +25,13 @@ public struct CleanupCategory: Identifiable, Sendable {
         case appCaches
         /// Discovered at scan time by walking for code projects.
         case devProjects
+        /// Simulator runtimes and devices listed by `simctl`; removed with `simctl`, not the Trash.
+        case simulators
+    }
+
+    /// Items of this category are removed for good with `simctl` instead of going to the Trash.
+    public var isRemovedWithSimctl: Bool {
+        if case .simulators = source { true } else { false }
     }
 
     public let id: String
@@ -75,9 +82,15 @@ extension CleanupCategory {
         CleanupCategory(
             id: "xcode-device-support",
             name: LocalizedStringResource("Xcode iOS DeviceSupport", bundle: #bundle),
-            details: LocalizedStringResource("Symbols copied from connected iOS devices. Old versions can be deleted.", bundle: #bundle),
+            details: LocalizedStringResource("Symbols copied from connected iPhones, iPads, Apple Watches, Apple TVs and Vision Pros. Old versions can be deleted; Xcode copies them again when that device connects.", bundle: #bundle),
             safety: .safe,
-            source: .paths(["~/Library/Developer/Xcode/iOS DeviceSupport"])
+            source: .paths([
+                "~/Library/Developer/Xcode/iOS DeviceSupport",
+                "~/Library/Developer/Xcode/watchOS DeviceSupport",
+                "~/Library/Developer/Xcode/tvOS DeviceSupport",
+                "~/Library/Developer/Xcode/visionOS DeviceSupport",
+                "~/Library/Developer/Xcode/xrOS DeviceSupport",
+            ])
         ),
         CleanupCategory(
             id: "simulator-caches",
@@ -85,6 +98,20 @@ extension CleanupCategory {
             details: LocalizedStringResource("Cached data for the iOS Simulator. Safe to delete.", bundle: #bundle),
             safety: .safe,
             source: .paths(["~/Library/Developer/CoreSimulator/Caches"])
+        ),
+        CleanupCategory(
+            id: "simulators",
+            name: LocalizedStringResource("Simulator Runtimes & Devices", bundle: #bundle),
+            details: LocalizedStringResource("iOS, watchOS, tvOS and visionOS simulator runtimes, and simulator devices with their app data. Removed with Xcode's simctl — this can't be undone. Runtimes can be downloaded again in Xcode › Settings › Components.", bundle: #bundle),
+            safety: .caution,
+            source: .simulators
+        ),
+        CleanupCategory(
+            id: "xcode-previews",
+            name: LocalizedStringResource("SwiftUI Previews Data", bundle: #bundle),
+            details: LocalizedStringResource("Simulator devices and builds Xcode creates for SwiftUI previews. Safe to delete; Xcode recreates them the next time a preview runs.", bundle: #bundle),
+            safety: .safe,
+            source: .paths(["~/Library/Developer/Xcode/UserData/Previews"])
         ),
         CleanupCategory(
             id: "spm-cache",
@@ -196,6 +223,17 @@ extension CleanupCategory {
             details: LocalizedStringResource("Local backups of iPhones/iPads via Finder. Review before deleting.", bundle: #bundle),
             safety: .caution,
             source: .paths(["~/Library/Application Support/MobileSync/Backup"])
+        ),
+        CleanupCategory(
+            id: "ios-updates",
+            name: LocalizedStringResource("iOS Software Updates", bundle: #bundle),
+            details: LocalizedStringResource("iPhone and iPad software files (.ipsw) Finder downloaded to update or restore a device. Safe to delete; Finder downloads them again when needed.", bundle: #bundle),
+            safety: .safe,
+            source: .paths([
+                "~/Library/iTunes/iPhone Software Updates",
+                "~/Library/iTunes/iPad Software Updates",
+                "~/Library/iTunes/iPod Software Updates",
+            ])
         ),
         CleanupCategory(
             id: "app-caches",

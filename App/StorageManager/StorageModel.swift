@@ -50,7 +50,7 @@ final class StorageModel {
     @ObservationIgnored private var prefetchOwner: [String: String] = [:]
     @ObservationIgnored private var hasDefaultSelection: Set<String> = []
     @ObservationIgnored private var expansionDenied: Set<String> = []
-    @ObservationIgnored private let scanner = CategoryScanner()
+    @ObservationIgnored private var scanner = CategoryScanner(exclusions: ExclusionStore.shared.list)
     @ObservationIgnored private let store = ScanResultStore()
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var didRestore = false
@@ -160,21 +160,58 @@ final class StorageModel {
         refreshVolume()
         let saved = await store.load()
         var restored: [CleanupCategory] = []
+        let exclusions = scanner.exclusions
         for category in categories {
-            guard let result = saved[category.id], phase(of: category) == .notScanned else { continue }
+            guard let saved = saved[category.id], phase(of: category) == .notScanned else { continue }
+            // Folders excluded since the last run stay hidden.
+            let result = saved.keeping(exclusions.filter(saved.entries))
             apply(result, for: category, persist: false)
             restored.append(category)
         }
-        guard !restored.isEmpty else { return }
-        refreshing.formUnion(restored.map(\.id))
+        await refreshAllInBackground(restored)
+    }
+
+    /// Rescans `categories` while their current results stay on screen.
+    private func refreshAllInBackground(_ categories: [CleanupCategory]) async {
+        guard !categories.isEmpty else { return }
+        refreshing.formUnion(categories.map(\.id))
         await withTaskGroup(of: Void.self) { group in
-            var pending = restored[...]
+            var pending = categories[...]
             func next() {
                 guard let category = pending.popFirst() else { return }
                 group.addTask { await self.refreshInBackground(category) }
             }
             for _ in 0..<3 { next() }
             for await _ in group { next() }
+        }
+    }
+
+    // MARK: Exclusions
+
+    /// Hides everything that overlaps a newly excluded folder at once; folders taken off the
+    /// list come back with a background rescan.
+    func setExclusions(_ exclusions: ExclusionList) {
+        let old = scanner.exclusions
+        guard exclusions != old else { return }
+        scanner = CategoryScanner(exclusions: exclusions)
+        var hidden = Set<String>()
+        for category in categories {
+            guard case .scanned(let result) = phase(of: category) else { continue }
+            let kept = exclusions.filter(result.entries)
+            guard kept.count != result.entries.count else { continue }
+            hidden.formUnion(result.entries.lazy.filter { exclusions.overlaps($0.path) }.map(\.path))
+            Motion.animate { phases[category.id] = .scanned(result.keeping(kept)) }
+        }
+        if !hidden.isEmpty {
+            forget(hidden)
+            recomputeTotals()
+            recomputeSelectionSummary()
+            scheduleSave()
+            updateWatcher()
+        }
+        if !old.paths.subtracting(exclusions.paths).isEmpty {
+            let scanned = categories.filter { if case .scanned = phase(of: $0) { true } else { false } }
+            Task { await refreshAllInBackground(scanned) }
         }
     }
 
@@ -320,6 +357,17 @@ final class StorageModel {
         recomputeSelectionSummary()
     }
 
+    /// Ticks `paths` (a suggestion's items); paths no longer on screen are ignored.
+    func select(paths: [String]) {
+        for path in paths where categoryOfPath[path] != nil { select(path) }
+        recomputeSelectionSummary()
+    }
+
+    /// Every finished result, keyed by category id.
+    var scannedResults: [String: CategoryScanResult] {
+        phases.compactMapValues { if case .scanned(let result) = $0 { result } else { nil } }
+    }
+
     func selectNone() {
         selection.removeAll()
         recomputeSelectionSummary()
@@ -383,11 +431,16 @@ final class StorageModel {
     // MARK: Trash
 
     func trashRequest() -> TrashCoordinator.Request? {
-        let paths = selection.units.sorted()
-        guard !paths.isEmpty else { return nil }
-        let categoryCount = Set(paths.compactMap { categoryOfPath[$0] }).count
-        return .items(
-            paths, bytes: selectedBytes,
+        let units = selection.units.sorted()
+        guard !units.isEmpty else { return nil }
+        let categoryCount = Set(units.compactMap { categoryOfPath[$0] }).count
+        // Simulators are removed with simctl; everything else goes to the Trash.
+        let simulators = units.compactMap(simulatorItem(at:))
+        let simulatorPaths = Set(simulators.map(\.path))
+        let paths = units.filter { !simulatorPaths.contains($0) }
+        let simulatorBytes = simulators.reduce(0) { $0 + $1.sizeBytes }
+        return .cleaning(
+            paths, bytes: max(0, selectedBytes - simulatorBytes), simulators: simulators,
             extraMessage: categoryCount > 1 ? "From \(categoryCount) categories. Quit apps whose caches you're cleaning first." : nil
         ) { [weak self] summary in
             self?.removeTrashed(summary)
@@ -395,9 +448,20 @@ final class StorageModel {
     }
 
     func trashRequest(for entry: FileEntry) -> TrashCoordinator.Request {
-        .single(entry) { [weak self] summary in
+        if let item = simulatorItem(at: entry.path) {
+            return .cleaning([], bytes: 0, simulators: [item]) { [weak self] summary in
+                self?.removeTrashed(summary)
+            }
+        }
+        return .single(entry) { [weak self] summary in
             self?.removeTrashed(summary)
         }
+    }
+
+    /// The simulator runtime or device shown at `path`, if that row is one.
+    func simulatorItem(at path: String) -> SimulatorItem? {
+        guard let id = categoryOfPath[path], case .scanned(let result)? = phases[id], !result.simulators.isEmpty else { return nil }
+        return result.simulators.first { $0.path == path }
     }
 
     /// Updates results locally after a clean, without rescanning. O(items × depth).
@@ -424,9 +488,7 @@ final class StorageModel {
         for (id, phase) in phases {
             guard case .scanned(let result) = phase else { continue }
             let entries = result.entries.filter { !isGone($0.path) }.map(shrink)
-            phases[id] = .scanned(CategoryScanResult(
-                categoryID: id, entries: entries, deniedPaths: result.deniedPaths, scannedAt: result.scannedAt
-            ))
+            phases[id] = .scanned(result.keeping(entries))
         }
         for (parent, kids) in children {
             if isGone(parent) { children[parent] = nil; continue }
@@ -481,6 +543,8 @@ final class StorageModel {
                 }
             case .appCaches, .devProjects:
                 roots.formUnion(result.entries.map(\.path))
+            case .simulators:
+                break
             }
         }
         let paths = roots.sorted()
@@ -517,7 +581,8 @@ final class StorageModel {
             let now = ContinuousClock.now
             let cpuBefore = Self.processCPUTime()
             defer { passQuietUntil = .now + (Self.processCPUTime() - cpuBefore) * Self.remeasureCostFactor }
-            for category in categories where !refreshing.contains(category.id) {
+            // Simulators aren't on the watched folders; they change only with a rescan.
+            for category in categories where !refreshing.contains(category.id) && !category.isRemovedWithSimctl {
                 guard case .scanned(let result) = phase(of: category) else { continue }
                 var plan = refreshPlan(for: category, result: result, changes: changes)
                 let cooling = plan.entries.filter { (nextRemeasure[$0] ?? now) > now }
@@ -644,7 +709,9 @@ final class StorageModel {
             entries.append(updated[entry.path] ?? entry)
             seen.insert(entry.path)
         }
-        let added = updated.values.filter { !seen.contains($0.path) && $0.sizeBytes > 0 }
+        let added = updated.values.filter {
+            !seen.contains($0.path) && $0.sizeBytes > 0 && !scanner.exclusions.overlaps($0.path)
+        }
         entries += added
         if case .appCaches = category.source { entries = entries.filter { $0.sizeBytes > 0 } }
         guard entries != current.entries || !vanished.isEmpty else { return }
@@ -709,9 +776,7 @@ struct VolumeUsage: Equatable, Sendable {
 private extension CategoryScanResult {
     /// The listings live in the model's own cache; don't keep a second reference in the phase.
     var strippingPrefetched: CategoryScanResult {
-        prefetched.isEmpty ? self : CategoryScanResult(
-            categoryID: categoryID, entries: entries, deniedPaths: deniedPaths, scannedAt: scannedAt
-        )
+        prefetched.isEmpty ? self : keeping(entries)
     }
 }
 

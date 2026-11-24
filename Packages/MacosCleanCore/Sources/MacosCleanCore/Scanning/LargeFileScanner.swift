@@ -28,12 +28,15 @@ public struct LargeFileScanner: Sendable {
     public let minimumBytes: Int64
     public let maxResults: Int?
     public let maxDepth: Int
+    /// Folders never walked. Exclusions around the chosen root don't apply (it was picked on purpose).
+    public let exclusions: ExclusionList
 
-    public init(root: URL, minimumBytes: Int64, maxResults: Int? = nil, maxDepth: Int = 8) {
+    public init(root: URL, minimumBytes: Int64, maxResults: Int? = nil, maxDepth: Int = 8, exclusions: ExclusionList = .empty) {
         self.root = root
         self.minimumBytes = minimumBytes
         self.maxResults = maxResults
         self.maxDepth = maxDepth
+        self.exclusions = exclusions
     }
 
     /// Cancel the consuming task (or stop iterating) to stop the walk.
@@ -58,11 +61,12 @@ public struct LargeFileScanner: Sendable {
             .filter { !(rootPath + "/").contains($0) }
             .map(SkipRule.init)
         let shared = SharedProgress()
+        let exclusions = exclusions.applying(toRoot: rootPath)
         let splitDepth = maxDepth > Self.splitDepth ? Self.splitDepth : nil
         @Sendable func makeVisitor(depthOffset: Int, split: Int?) -> Visitor {
             Visitor(
                 minimumBytes: minimumBytes, maxResults: maxResults, maxDepth: maxDepth, rules: rules,
-                depthOffset: depthOffset, splitDepth: split, shared: shared, emit: emit
+                exclusions: exclusions, depthOffset: depthOffset, splitDepth: split, shared: shared, emit: emit
             )
         }
 
@@ -155,6 +159,7 @@ public struct LargeFileScanner: Sendable {
         let maxResults: Int?
         let maxDepth: Int
         let rules: [SkipRule]
+        let exclusions: ExclusionList
         /// Depth of this walk's root below the scan root.
         let depthOffset: Int
         /// Folders at this depth are recorded in `workItems` instead of being walked here.
@@ -206,6 +211,7 @@ public struct LargeFileScanner: Sendable {
                 }
                 // App bundles and other packages are managed by the Uninstaller.
                 if name.hasSuffix(".app") { return .skipChildren }
+                if !exclusions.isEmpty, exclusions.contains(folder: entry.path) { return .skipChildren }
                 if depth == splitDepth {
                     workItems.append((entry.path, depth))
                     return .skipChildren

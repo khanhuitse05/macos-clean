@@ -217,7 +217,11 @@ struct BubblView: View {
             }
 
             if let labelProgress, let celebration {
-                FreedLabel(bytes: Int64(Double(celebration.bytes) * labelProgress))
+                FreedLabel(
+                    bytes: Int64(Double(celebration.bytes) * labelProgress),
+                    // Once the count-up is done, the second line shows the lifetime total (N2).
+                    lifetimeBytes: labelProgress >= 1 ? celebration.lifetimeBytes : 0
+                )
                     .frame(width: r * 1.5)
                     .offset(y: r * 0.2)
                     .transition(.opacity)
@@ -475,13 +479,14 @@ private struct CarriedAppIcon: View {
 /// "4.2 GB freed", shown inside the reformed bubble.
 private struct FreedLabel: View {
     let bytes: Int64
+    var lifetimeBytes: Int64 = 0
 
     var body: some View {
         VStack(spacing: 0) {
             Text(bytes.fileSize)
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .monospacedDigit()
-            Text("freed")
+            Text(lifetimeBytes > bytes ? "\(lifetimeBytes.fileSize) in all" : "freed")
                 .font(.system(size: 9, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
         }

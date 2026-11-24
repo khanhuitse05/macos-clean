@@ -9,7 +9,8 @@ import Testing
 struct CategoryTests {
     @Test func hasAllReferenceCategoriesWithUniqueIDs() {
         let ids = CleanupCategory.all.map(\.id)
-        #expect(ids.count == 23)
+        // The reference's 23, plus SwiftUI previews, iOS software updates and simulators (N6).
+        #expect(ids.count == 26)
         #expect(Set(ids).count == ids.count)
     }
 
@@ -17,7 +18,7 @@ struct CategoryTests {
         let caution = Set(CleanupCategory.all.filter { $0.safety == .caution }.map(\.id))
         #expect(caution == [
             "xcode-archives", "docker-data", "claude-data",
-            "ios-backups", "dev-projects", "system-downloads",
+            "ios-backups", "dev-projects", "system-downloads", "simulators",
         ])
     }
 

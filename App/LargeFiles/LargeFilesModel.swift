@@ -69,7 +69,9 @@ final class LargeFilesModel {
         hasScanned = true
         refreshVisible()
 
-        let scanner = LargeFileScanner(root: root, minimumBytes: Int64(minimumMB) * 1_024 * 1_024)
+        let scanner = LargeFileScanner(
+            root: root, minimumBytes: Int64(minimumMB) * 1_024 * 1_024, exclusions: ExclusionStore.shared.list
+        )
         scanGeneration += 1
         let generation = scanGeneration
         scanTask = Task { [weak self] in
@@ -109,6 +111,19 @@ final class LargeFilesModel {
             $0.name.localizedStandardContains(query) || $0.location.localizedStandardContains(query)
         }
         totalBytes = allRows.reduce(0) { $0 + $1.sizeBytes }
+    }
+
+    /// Drops files inside folders the user just excluded (the chosen root itself never counts).
+    func setExclusions(_ exclusions: ExclusionList) {
+        let effective = exclusions.applying(toRoot: root.standardizedFileURL.path)
+        guard !effective.isEmpty else { return }
+        let hidden = Set(allRows.lazy.filter { effective.isExcluded($0.id) }.map(\.id))
+        guard !hidden.isEmpty else { return }
+        Motion.animate {
+            allRows.removeAll { hidden.contains($0.id) }
+            checked.subtract(hidden)
+            refreshVisible()
+        }
     }
 
     // MARK: Selection

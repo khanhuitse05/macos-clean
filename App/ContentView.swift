@@ -2,17 +2,18 @@ import MacosCleanCore
 import SwiftUI
 
 enum AppSection: String, Hashable, CaseIterable, Identifiable {
-    case storage, largeFiles, fileBrowser, uninstaller, trash
+    case storage, largeFiles, duplicates, fileBrowser, uninstaller, trash
 
     var id: String { rawValue }
 
     /// The sections listed under "Clean Up"; the Trash sits apart at the bottom of the sidebar.
-    static let cleanUp: [AppSection] = [.storage, .largeFiles, .fileBrowser, .uninstaller]
+    static let cleanUp: [AppSection] = [.storage, .largeFiles, .duplicates, .fileBrowser, .uninstaller]
 
     var title: LocalizedStringKey {
         switch self {
         case .storage: "Storage Manager"
         case .largeFiles: "Large Files"
+        case .duplicates: "Duplicates"
         case .fileBrowser: "File Browser"
         case .uninstaller: "Uninstaller"
         case .trash: "Trash"
@@ -23,6 +24,7 @@ enum AppSection: String, Hashable, CaseIterable, Identifiable {
         switch self {
         case .storage: "internaldrive"
         case .largeFiles: "doc.text.magnifyingglass"
+        case .duplicates: "doc.on.doc"
         case .fileBrowser: "rectangle.split.3x1"
         case .uninstaller: "xmark.app"
         case .trash: "trash"
@@ -37,10 +39,30 @@ final class AppState {
     var section: AppSection? = AppState.initialSection
     let storage = StorageModel()
     let largeFiles = LargeFilesModel()
+    let duplicates = DuplicatesModel()
     let fileBrowser = FileBrowserModel()
     let uninstaller = UninstallerModel()
     let trash = TrashCoordinator()
     let access = AccessModel()
+    let suggestions = SuggestionsModel()
+
+    /// Shows an installed app (by bundle path) in the Uninstaller.
+    func reviewApp(at path: String) {
+        guard let app = uninstaller.apps.first(where: { $0.path == path }) else { return }
+        uninstaller.searchText = ""
+        uninstaller.selectedID = UninstallItem.app(app).id
+        section = .uninstaller
+    }
+
+    init() {
+        // Excluded folders disappear from every section at once.
+        ExclusionStore.shared.observe { [storage, largeFiles, duplicates, uninstaller] list in
+            storage.setExclusions(list)
+            largeFiles.setExclusions(list)
+            duplicates.setExclusions(list)
+            uninstaller.setExclusions(list)
+        }
+    }
 
     /// Debug builds accept `-StartSection <name>` (e.g. `trash`) to open on a section, for screenshots.
     private static var initialSection: AppSection {
@@ -66,9 +88,15 @@ struct ContentView: View {
             Group {
                 switch state.section ?? .storage {
                 case .storage:
-                    StorageManagerView(model: state.storage, trash: state.trash, access: state.access)
+                    StorageManagerView(
+                        model: state.storage, trash: state.trash, access: state.access,
+                        suggestions: state.suggestions, uninstaller: state.uninstaller,
+                        onReviewApp: { state.reviewApp(at: $0) }
+                    )
                 case .largeFiles:
                     LargeFilesView(model: state.largeFiles, trash: state.trash, access: state.access)
+                case .duplicates:
+                    DuplicatesView(model: state.duplicates, trash: state.trash, access: state.access)
                 case .fileBrowser:
                     FileBrowserView(model: state.fileBrowser, trash: state.trash, access: state.access)
                 case .uninstaller:
