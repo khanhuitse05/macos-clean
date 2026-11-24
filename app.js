@@ -1106,7 +1106,6 @@ const BROWSER_TREE = {
 document.addEventListener('DOMContentLoaded', () => {
   initThemeToggle();
   initCopyButtons();
-  initShareButton();
   initCategoryExplorer();
 
   const heroCanvas = document.getElementById('hero-bubbl-canvas');
@@ -1168,44 +1167,6 @@ function initCopyButtons() {
         btn.textContent = 'Copy manually';
       }
     });
-  });
-}
-
-function initShareButton() {
-  const btn = document.getElementById('share-site-btn');
-  if (!btn) return;
-  const label = btn.querySelector('span');
-  const shareUrl = 'https://github.com/khanhuitse05/macos-clean';
-
-  btn.addEventListener('click', async () => {
-    const targetUrl = window.location.href.startsWith('http') ? window.location.href : shareUrl;
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'macOS Clean — Free & Open Source Mac Cleaner',
-          text: 'A native macOS 26 cleaner that moves everything to the Trash first.',
-          url: targetUrl,
-        });
-        return;
-      } catch (err) {
-        if (err && err.name === 'AbortError') return;
-      }
-    }
-
-    try {
-      await navigator.clipboard.writeText(targetUrl);
-      if (label) {
-        const orig = label.textContent;
-        label.textContent = 'Link copied!';
-        setTimeout(() => { label.textContent = orig; }, 1800);
-      }
-    } catch {
-      window.open(
-        `https://x.com/intent/tweet?text=${encodeURIComponent('macOS Clean — a free, open-source macOS 26 cleaner that moves everything to the Trash first:')}&url=${encodeURIComponent(targetUrl)}`,
-        '_blank',
-        'noopener,noreferrer'
-      );
-    }
   });
 }
 

@@ -1880,49 +1880,6 @@ kbd {
   background: var(--surface-hover);
 }
 
-/* Open Source & Share */
-.oss-card {
-  border-radius: 28px;
-  padding: 40px 28px;
-  text-align: center;
-  background:
-    radial-gradient(circle at 50% 100%, rgba(56, 189, 248, 0.16), transparent 65%),
-    var(--glass-bg);
-}
-
-.oss-pills {
-  margin-bottom: 14px;
-}
-
-.oss-copy h2 {
-  margin: 0 0 10px;
-  font-family: var(--font-display);
-  font-size: clamp(1.65rem, 3.2vw, 2.2rem);
-  letter-spacing: -0.025em;
-}
-
-.oss-copy p {
-  margin: 0 auto 24px;
-  max-width: 640px;
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-
-.oss-copy code {
-  font-size: 0.9em;
-  padding: 1px 6px;
-  border-radius: 6px;
-  background: var(--surface-subtle);
-  border: 1px solid var(--glass-border);
-}
-
-.oss-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 12px;
-}
-
 /* Footer */
 .site-footer {
   padding-block: 28px 46px;
