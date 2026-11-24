@@ -1,4 +1,5 @@
 import AppKit
+import MacosCleanCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -15,9 +16,7 @@ enum FileActions {
     }
 
     static func openTrash() {
-        let trash = FileManager.default.urls(for: .trashDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".Trash")
-        NSWorkspace.shared.open(trash)
+        NSWorkspace.shared.open(TrashEmptier.userTrashURL)
     }
 }
 

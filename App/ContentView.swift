@@ -36,6 +36,12 @@ final class AppState {
     let uninstaller = UninstallerModel()
     let trash = TrashCoordinator()
     let access = AccessModel()
+
+    /// Opens Storage Manager with the Trash category expanded.
+    func revealTrash() {
+        section = .storage
+        storage.reveal(categoryID: "trash")
+    }
 }
 
 struct ContentView: View {
@@ -70,9 +76,15 @@ struct ContentView: View {
             FullDiskAccessWelcome(access: state.access)
         }
         .task {
+            state.trash.onErased = { [storage = state.storage] summary in storage.noteErased(summary) }
+            state.trash.bin.start()
             state.access.showWelcomeIfNeeded()
             // Start watching Applications right away so removals are noticed in any section.
             state.uninstaller.start()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Full Disk Access may have been granted meanwhile.
+            state.trash.bin.refresh()
         }
         .task {
             // Last run's results appear at once; a background rescan then refreshes them.
@@ -95,21 +107,30 @@ private struct Sidebar: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if !state.access.hasFullDiskAccess {
-                Button {
-                    state.access.isShowingWelcome = true
-                } label: {
-                    Label("Full Disk Access is off", systemImage: "lock.trianglebadge.exclamationmark")
-                        .symbolEffect(.wiggle, options: .repeat(.periodic(delay: 10)))
-                        .font(.callout)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.orange)
-                .padding(12)
-                .help("Some folders can't be scanned. Click to learn how to allow access.")
+            VStack(alignment: .leading, spacing: 10) {
+                TrashBinView(
+                    coordinator: state.trash,
+                    onReveal: { state.revealTrash() },
+                    onBlockedTap: { state.access.isShowingWelcome = true }
+                )
+                if !state.access.hasFullDiskAccess { fullDiskAccessButton }
             }
+            .padding(12)
         }
+    }
+
+    private var fullDiskAccessButton: some View {
+        Button {
+            state.access.isShowingWelcome = true
+        } label: {
+            Label("Full Disk Access is off", systemImage: "lock.trianglebadge.exclamationmark")
+                .symbolEffect(.wiggle, options: .repeat(.periodic(delay: 10)))
+                .font(.callout)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.orange)
+        .help("Some folders can't be scanned. Click to learn how to allow access.")
     }
 
     private func badge(for section: AppSection) -> Text? {

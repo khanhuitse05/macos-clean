@@ -252,6 +252,7 @@ final class UninstallerModel {
             title: title,
             message: message,
             confirmTitle: includesApp ? "Uninstall" : "Move to Trash",
+            bytes: bytes,
             prepare: { [weak self] in
                 if running, await Self.quit(bundleID: bundleID) == false {
                     self?.errorMessage = "\(item.name) didn't quit. Quit it yourself, then try again."

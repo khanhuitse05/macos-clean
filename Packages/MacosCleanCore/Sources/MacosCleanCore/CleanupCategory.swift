@@ -54,7 +54,7 @@ extension CleanupCategory {
         CleanupCategory(
             id: "trash",
             name: LocalizedStringResource("Trash", bundle: #bundle),
-            details: LocalizedStringResource("Files already in the Trash. macos-clean never deletes permanently, so empty it yourself in Finder.", bundle: #bundle),
+            details: LocalizedStringResource("Files already in the Trash. Empty it, or pick items to delete for good.", bundle: #bundle),
             safety: .safe,
             source: .paths(["~/.Trash"])
         ),

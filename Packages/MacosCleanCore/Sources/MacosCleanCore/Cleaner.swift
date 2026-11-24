@@ -61,8 +61,9 @@ public struct FileManagerTrasher: Trashing {
     }
 }
 
-/// The only code path that removes files, and it only ever moves to the Trash — there is
-/// deliberately no hard-delete. Mirrors `move_to_trash` / `clean_paths` in the reference `cleaner.rs`.
+/// Moves files to the Trash; it never deletes. Permanent deletion happens only in
+/// ``TrashEmptier``, and only for items already in the Trash. Mirrors `move_to_trash` /
+/// `clean_paths` in the reference `cleaner.rs`.
 public struct Cleaner: Sendable {
     public static let refusalMessage = "Refusing to trash a protected path."
 
@@ -95,7 +96,8 @@ public struct Cleaner: Sendable {
             inHome("Library/Application Support"), inHome("Library/Preferences"),
         ]
         // Nothing inside these is ever touched: the read-only system, items already in the
-        // Trash (removing them would be a hard delete), and this app itself.
+        // Trash (moving them to the Trash does nothing; ``TrashEmptier`` deletes those), and
+        // this app itself.
         var trees = ["/System", inHome(".Trash")]
         if let ownBundlePath, ownBundlePath.hasSuffix(".app") { trees.append(std(ownBundlePath)) }
         self.protectedTrees = trees

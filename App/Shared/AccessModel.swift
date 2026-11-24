@@ -106,7 +106,7 @@ struct FullDiskAccessWelcome: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
             .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 12))
-            Text("macos-clean never deletes anything directly: everything goes to the Trash, and only after you confirm.")
+            Text("Nothing is removed until you confirm. Cleaned items go to the Trash; only emptying the Trash deletes them for good.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

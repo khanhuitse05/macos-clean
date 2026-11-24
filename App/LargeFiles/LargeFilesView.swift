@@ -10,6 +10,7 @@ struct LargeFilesView: View {
     @State private var tableSelection: Set<String> = []
     @State private var previewURL: URL?
     @State private var isChoosingFolder = false
+    @State private var trashButton = FrameBox()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,8 +29,9 @@ struct LargeFilesView: View {
                 ) {
                     Button("Deselect All") { model.uncheckAll() }
                     Button("Move to Trash…", systemImage: "trash") {
-                        if let request = model.trashRequest() { trash.request(request) }
+                        if let request = model.trashRequest() { trash.request(request, from: trashButton.rect) }
                     }
+                    .trashOrigin(trashButton)
                     .buttonStyle(.glassProminent)
                     .keyboardShortcut(.delete, modifiers: .command)
                     .disabled(trash.isRunning)

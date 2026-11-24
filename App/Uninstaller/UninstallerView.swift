@@ -192,6 +192,7 @@ private struct AppDetailPane: View {
 
     @State private var expanded: Set<LeftoverKind> = []
     @State private var previewURL: URL?
+    @State private var trashButton = FrameBox()
 
     var body: some View {
         List {
@@ -291,8 +292,9 @@ private struct AppDetailPane: View {
                 detail: "\(entries.count) \(entries.count == 1 ? "item" : "items") will move to the Trash"
             ) {
                 Button(removesApp ? "Uninstall…" : "Remove Leftovers…", systemImage: "trash") {
-                    if let request = model.uninstallRequest(for: item) { trash.request(request) }
+                    if let request = model.uninstallRequest(for: item) { trash.request(request, from: trashButton.rect) }
                 }
+                .trashOrigin(trashButton)
                 .buttonStyle(.glassProminent)
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(trash.isRunning)

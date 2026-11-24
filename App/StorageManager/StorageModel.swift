@@ -19,9 +19,10 @@ final class StorageModel {
         case scanned(CategoryScanResult)
     }
 
-    /// Categories whose items are shown but can never be selected (emptying the Trash would be a
-    /// hard delete; the user does that in Finder).
-    static let readOnlyCategoryIDs: Set<String> = ["trash"]
+    /// Categories whose items are deleted permanently instead of moved to the Trash (the Trash
+    /// itself). They have their own picks, never mixed into ``selection``, and their bytes are
+    /// not counted as "found".
+    static let permanentCategoryIDs: Set<String> = ["trash"]
 
     let categories = CleanupCategory.all
     private(set) var phases: [String: Phase] = [:]
@@ -39,6 +40,11 @@ final class StorageModel {
     private(set) var selectedBytesByCategory: [String: Int64] = [:]
     private(set) var foundBytes: Int64 = 0
     private(set) var deniedPaths: [String] = []
+    /// Items in the Trash picked for permanent deletion (top-level entries only).
+    private(set) var trashPicks: Set<String> = []
+    private(set) var trashPickedBytes: Int64 = 0
+    /// Set to ask the view to expand and scroll to a category; the view clears it.
+    var revealRequest: String?
     /// Capacity of the disk the home folder is on, for the header bar.
     private(set) var volume: VolumeUsage?
 
@@ -81,7 +87,9 @@ final class StorageModel {
 
     func phase(of category: CleanupCategory) -> Phase { phases[category.id] ?? .notScanned }
 
-    func isReadOnly(_ category: CleanupCategory) -> Bool { Self.readOnlyCategoryIDs.contains(category.id) }
+    func isPermanent(_ category: CleanupCategory) -> Bool { Self.permanentCategoryIDs.contains(category.id) }
+
+    func reveal(categoryID: String) { revealRequest = categoryID }
 
     func isRefreshing(_ category: CleanupCategory) -> Bool { refreshing.contains(category.id) }
 
@@ -249,8 +257,13 @@ final class StorageModel {
         addPrefetched(result.prefetched, owner: category.id)
         phases[category.id] = .scanned(result.strippingPrefetched)
 
-        if isReadOnly(category) {
-            // never selectable
+        if isPermanent(category) {
+            // Never in `selection`; keep picks on items that are still there.
+            let present = Set(result.entries.map(\.path))
+            if !trashPicks.isSubset(of: present) {
+                trashPicks.formIntersection(present)
+                recomputeTrashPicks()
+            }
         } else if !hasDefaultSelection.contains(category.id) {
             // First scan: tick everything in a safe category, nothing in a caution one.
             hasDefaultSelection.insert(category.id)
@@ -305,7 +318,7 @@ final class StorageModel {
     }
 
     func toggle(_ category: CleanupCategory) async {
-        guard !isReadOnly(category) else { return }
+        guard !isPermanent(category) else { return }
         if phase(of: category) == .notScanned {
             await scan(category)
         }
@@ -319,7 +332,7 @@ final class StorageModel {
     }
 
     func selectAll() {
-        for category in categories where !isReadOnly(category) {
+        for category in categories where !isPermanent(category) {
             if case .scanned(let result) = phase(of: category) {
                 for entry in result.entries { select(entry.path) }
             }
@@ -378,7 +391,7 @@ final class StorageModel {
         var denied: [String] = []
         for phase in phases.values {
             if case .scanned(let result) = phase {
-                if !Self.readOnlyCategoryIDs.contains(result.categoryID) { total += result.totalBytes }
+                if !Self.permanentCategoryIDs.contains(result.categoryID) { total += result.totalBytes }
                 denied += result.deniedPaths
             }
         }
@@ -405,6 +418,51 @@ final class StorageModel {
         .single(entry) { [weak self] summary in
             self?.removeTrashed(summary)
         }
+    }
+
+    // MARK: Trash picks (permanent delete)
+
+    func isPicked(_ entry: FileEntry) -> Bool { trashPicks.contains(entry.path) }
+
+    func togglePick(_ entry: FileEntry) {
+        if trashPicks.contains(entry.path) { trashPicks.remove(entry.path) } else { trashPicks.insert(entry.path) }
+        recomputeTrashPicks()
+    }
+
+    func pickState(of category: CleanupCategory) -> CheckState {
+        guard case .scanned(let result) = phase(of: category), !result.entries.isEmpty, !trashPicks.isEmpty else { return .off }
+        return trashPicks.count >= result.entries.count ? .on : .mixed
+    }
+
+    /// Picks every item in the Trash, or none when all are picked.
+    func togglePicks(in category: CleanupCategory) {
+        guard case .scanned(let result) = phase(of: category) else { return }
+        trashPicks = pickState(of: category) == .on ? [] : Set(result.entries.map(\.path))
+        recomputeTrashPicks()
+    }
+
+    /// Permanently deletes the picked Trash items, or just `entry`.
+    func eraseRequest(for entry: FileEntry? = nil) -> TrashCoordinator.Request? {
+        if let entry {
+            return .erase([entry.path], bytes: entry.sizeBytes, name: entry.name)
+        }
+        guard !trashPicks.isEmpty else { return nil }
+        return .erase(trashPicks.sorted(), bytes: trashPickedBytes)
+    }
+
+    /// Called after any permanent delete (picked items or the whole Trash): drops the rows.
+    func noteErased(_ summary: CleanSummary) {
+        removeTrashed(summary)
+        let gone = summary.trashedPaths
+        if !trashPicks.isDisjoint(with: gone) {
+            trashPicks.subtract(gone)
+            recomputeTrashPicks()
+        }
+    }
+
+    private func recomputeTrashPicks() {
+        let total = trashPicks.reduce(Int64(0)) { $0 + max(0, sizes[$1] ?? 0) }
+        if trashPickedBytes != total { trashPickedBytes = total }
     }
 
     /// Updates results locally after a clean, without rescanning. O(items × depth).
@@ -644,7 +702,7 @@ final class StorageModel {
         for entry in measured.entries {
             if entry.modified == nil { vanished.insert(entry.path) } else { updated[entry.path] = entry }
         }
-        let wasFullySelected = !isReadOnly(category) && checkState(of: category) == .on
+        let wasFullySelected = !isPermanent(category) && checkState(of: category) == .on
         var entries: [FileEntry] = []
         var seen = Set<String>()
         for entry in current.entries where !vanished.contains(entry.path) {

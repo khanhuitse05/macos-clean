@@ -52,6 +52,20 @@ struct SafetyBadge: View {
     }
 }
 
+/// Marks the Trash category: what's deleted there is gone for good.
+struct PermanentBadge: View {
+    var body: some View {
+        Text("Permanent")
+            .font(.caption2.weight(.semibold))
+            .textCase(.uppercase)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .foregroundStyle(.red)
+            .background(Color.red.opacity(0.15), in: .capsule)
+            .help("Items here are deleted permanently, not moved to the Trash")
+    }
+}
+
 /// Floating glass bar pinned to the bottom of a feature: what's selected + the primary action.
 struct SelectionBar<Actions: View>: View {
     let title: String
@@ -138,5 +152,75 @@ struct CountingBytes: View {
     var body: some View {
         Text(Int64(max(0, bytes)).fileSize)
             .monospacedDigit()
+    }
+}
+
+/// A handful of sparkles that fly outward and fade each time `trigger` changes.
+struct SparkleBurst: View {
+    let trigger: Int
+    var tint: Color = .yellow
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<5, id: \.self) { index in
+                let angle = Self.angle(index)
+                Image(systemName: "sparkle")
+                    .font(.system(size: index.isMultiple(of: 2) ? 9 : 6, weight: .bold))
+                    .foregroundStyle(tint)
+                    .keyframeAnimator(initialValue: Spark(), trigger: trigger) { content, spark in
+                        content
+                            .offset(x: spark.distance * cos(angle), y: spark.distance * sin(angle))
+                            .scaleEffect(spark.scale)
+                            .opacity(spark.opacity)
+                    } keyframes: { _ in
+                        KeyframeTrack(\.distance) { CubicKeyframe(22, duration: 0.7) }
+                        KeyframeTrack(\.scale) {
+                            SpringKeyframe(1.2, duration: 0.25)
+                            CubicKeyframe(0.4, duration: 0.45)
+                        }
+                        KeyframeTrack(\.opacity) {
+                            LinearKeyframe(1, duration: 0.1)
+                            LinearKeyframe(1, duration: 0.3)
+                            LinearKeyframe(0, duration: 0.3)
+                        }
+                    }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private static func angle(_ index: Int) -> Double { -Double.pi / 2 + Double(index - 2) * 0.55 }
+
+    private struct Spark {
+        var distance: Double = 0
+        var scale: Double = 0.2
+        var opacity: Double = 0
+    }
+}
+
+// MARK: - Fly-to-Trash origins
+
+/// Remembers a view's frame in the window-wide ``TrashFlight/space`` without re-rendering
+/// anything when it changes (scrolling moves it every frame).
+final class FrameBox {
+    var rect: CGRect?
+}
+
+extension View {
+    /// Records this view's frame into `box`, so a move to the Trash can fly from here.
+    func trashOrigin(_ box: FrameBox) -> some View {
+        onGeometryChange(for: CGRect.self) { $0.frame(in: .named(TrashFlight.space)) } action: { box.rect = $0 }
+    }
+}
+
+/// Gives `content` its own ``FrameBox``, so an action in a row's context menu can fly from
+/// that row.
+struct TrashOriginReader<Content: View>: View {
+    @State private var box = FrameBox()
+    @ViewBuilder let content: (FrameBox) -> Content
+
+    var body: some View {
+        content(box).trashOrigin(box)
     }
 }

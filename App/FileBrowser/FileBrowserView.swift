@@ -50,7 +50,7 @@ struct FileBrowserView: View {
                             model: model,
                             focus: $focusedColumn,
                             onQuickLook: { previewURL = $0 },
-                            onTrash: { trash.request(model.trashRequest(for: $0)) }
+                            onTrash: { trash.request(model.trashRequest(for: $0), from: $1) }
                         )
                         .frame(width: 280)
                         .id(folder)
@@ -119,7 +119,7 @@ private struct BrowserColumn: View {
     let model: FileBrowserModel
     var focus: FocusState<Int?>.Binding
     let onQuickLook: (URL) -> Void
-    let onTrash: (FileEntry) -> Void
+    let onTrash: (FileEntry, CGRect?) -> Void
 
     var body: some View {
         if let state = model.state(of: folder) {
@@ -144,11 +144,13 @@ private struct BrowserColumn: View {
     private var list: some View {
         List(selection: selection) {
             ForEach(model.entries(in: folder)) { entry in
-                BrowserRow(entry: entry, isMeasuring: model.isMeasuring(entry))
-                    .tag(entry.path)
-                    .contextMenu {
-                        FileContextMenu(path: entry.path, onQuickLook: onQuickLook, onTrash: { onTrash(entry) })
-                    }
+                TrashOriginReader { origin in
+                    BrowserRow(entry: entry, isMeasuring: model.isMeasuring(entry))
+                        .contextMenu {
+                            FileContextMenu(path: entry.path, onQuickLook: onQuickLook, onTrash: { onTrash(entry, origin.rect) })
+                        }
+                }
+                .tag(entry.path)
             }
         }
         .listStyle(.sidebar)

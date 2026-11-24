@@ -12,8 +12,21 @@ struct StorageManagerView: View {
 
     @State private var expanded: Set<String> = []
     @State private var previewURL: URL?
+    @State private var trashButton = FrameBox()
 
     var body: some View {
+        ScrollViewReader { proxy in
+            list
+                .onChange(of: model.revealRequest, initial: true) { _, id in
+                    guard let id else { return }
+                    model.revealRequest = nil
+                    expanded.insert(id)
+                    Motion.animate(.smooth) { proxy.scrollTo(id, anchor: .top) }
+                }
+        }
+    }
+
+    private var list: some View {
         List {
             HStack(alignment: .center, spacing: 16) {
                 StorageSummaryHeader(
@@ -48,10 +61,11 @@ struct StorageManagerView: View {
                 CategoryDisclosure(
                     category: category,
                     model: model,
+                    trash: trash,
                     expanded: $expanded,
-                    onQuickLook: { previewURL = $0 },
-                    onTrash: { trash.request(model.trashRequest(for: $0)) }
+                    onQuickLook: { previewURL = $0 }
                 )
+                .id(category.id)
             }
         }
         .listStyle(.inset)
@@ -64,8 +78,9 @@ struct StorageManagerView: View {
                 ) {
                     Button("Deselect All") { model.selectNone() }
                     Button("Move to Trash…", systemImage: "trash") {
-                        if let request = model.trashRequest() { trash.request(request) }
+                        if let request = model.trashRequest() { trash.request(request, from: trashButton.rect) }
                     }
+                    .trashOrigin(trashButton)
                     .buttonStyle(.glassProminent)
                     .keyboardShortcut(.delete, modifiers: .command)
                     .disabled(trash.isRunning)
@@ -154,7 +169,7 @@ private struct StorageSummaryHeader: View {
             } else {
                 Text("Find space you can free")
                     .font(.title2.weight(.semibold))
-                Text("Scan all categories, or click a category to scan just that one. Nothing is removed until you confirm, and everything goes to the Trash.")
+                Text("Scan all categories, or click a category to scan just that one. Nothing is removed until you confirm, and cleaned items go to the Trash first.")
                     .foregroundStyle(.secondary)
             }
             if let volume {
@@ -259,9 +274,9 @@ private struct ScanTicker: View {
 private struct CategoryDisclosure: View {
     let category: CleanupCategory
     let model: StorageModel
+    let trash: TrashCoordinator
     @Binding var expanded: Set<String>
     let onQuickLook: (URL) -> Void
-    let onTrash: (FileEntry) -> Void
 
     var body: some View {
         let phase = model.phase(of: category)
@@ -285,14 +300,14 @@ private struct CategoryDisclosure: View {
                 } else {
                     ForEach(result.entries) { entry in
                         EntryRow(
-                            entry: entry, model: model, isReadOnly: model.isReadOnly(category),
-                            expanded: $expanded, onQuickLook: onQuickLook, onTrash: onTrash
+                            entry: entry, model: model, trash: trash, isPermanent: model.isPermanent(category),
+                            isTopLevel: true, expanded: $expanded, onQuickLook: onQuickLook
                         )
                     }
                 }
             }
         } label: {
-            CategoryRow(category: category, phase: phase, model: model)
+            CategoryRow(category: category, phase: phase, model: model, trash: trash)
         }
         .onChange(of: expanded.contains(category.id)) { _, isOpen in
             if isOpen, phase == .notScanned { Task { await model.scan(category) } }
@@ -313,11 +328,15 @@ private struct CategoryRow: View {
     let category: CleanupCategory
     let phase: StorageModel.Phase
     let model: StorageModel
+    let trash: TrashCoordinator
 
     var body: some View {
         HStack(spacing: 10) {
-            if model.isReadOnly(category) {
-                Color.clear.frame(width: 14, height: 14)
+            if model.isPermanent(category) {
+                TriStateCheckbox(state: model.pickState(of: category), isEnabled: !(scannedEntries?.isEmpty ?? true)) {
+                    model.togglePicks(in: category)
+                }
+                .help("Pick everything in the Trash to delete permanently")
             } else {
                 TriStateCheckbox(state: model.checkState(of: category), isEnabled: phase != .scanning) {
                     Task { await model.toggle(category) }
@@ -333,7 +352,9 @@ private struct CategoryRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(category.name).font(.headline)
-                    if !model.isReadOnly(category) {
+                    if model.isPermanent(category) {
+                        PermanentBadge()
+                    } else {
                         SafetyBadge(safety: category.safety)
                     }
                 }
@@ -352,6 +373,32 @@ private struct CategoryRow: View {
 
     private var scannedAt: Date? {
         if case .scanned(let result) = phase { result.scannedAt } else { nil }
+    }
+
+    private var scannedEntries: [FileEntry]? {
+        if case .scanned(let result) = phase { result.entries } else { nil }
+    }
+
+    /// "Empty Trash…", or "Delete 3 Items…" once some are picked.
+    @ViewBuilder
+    private func permanentAction(_ result: CategoryScanResult) -> some View {
+        let picked = model.trashPicks.count
+        Group {
+            if picked > 0 {
+                Button("Delete \(picked.formatted()) \(picked == 1 ? "Item" : "Items")…", systemImage: "trash.slash") {
+                    if let request = model.eraseRequest() { trash.request(request) }
+                }
+                .help("Delete the picked items permanently")
+            } else if !result.entries.isEmpty {
+                Button("Empty Trash…", systemImage: "trash.slash") {
+                    trash.request(.emptyTrash(bytes: result.totalBytes, count: result.entries.count))
+                }
+                .help("Delete everything in the Trash permanently")
+            }
+        }
+        .controlSize(.small)
+        .tint(.red)
+        .disabled(trash.isRunning)
     }
 
     @ViewBuilder
@@ -379,21 +426,20 @@ private struct CategoryRow: View {
                         .symbolEffect(.wiggle, options: .nonRepeating, value: result.scannedAt)
                         .help("macOS blocked some folders. Grant Full Disk Access to include them.")
                 }
-                if model.isReadOnly(category) {
-                    Button("Open Trash", systemImage: "trash") { FileActions.openTrash() }
-                        .controlSize(.small)
-                        .help("Empty the Trash yourself in Finder. macos-clean never deletes files permanently.")
+                if model.isPermanent(category) {
+                    permanentAction(result)
                 }
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(result.entries.isEmpty && !result.deniedPaths.isEmpty ? "Blocked" : result.totalBytes.fileSize)
                         .font(.body.weight(.medium))
                         .monospacedDigit()
                         .contentTransition(.numericText())
-                    let selected = model.selectedBytes(in: category)
+                    let permanent = model.isPermanent(category)
+                    let selected = permanent ? model.trashPickedBytes : model.selectedBytes(in: category)
                     if selected > 0 {
                         Text("\(selected.fileSize) selected")
                             .font(.caption)
-                            .foregroundStyle(.tint)
+                            .foregroundStyle(permanent ? AnyShapeStyle(.red) : AnyShapeStyle(.tint))
                             .monospacedDigit()
                             .contentTransition(.numericText())
                             .motionTransition(.opacity.combined(with: .scale(scale: 0.9, anchor: .trailing)))
@@ -408,10 +454,14 @@ private struct CategoryRow: View {
 private struct EntryRow: View {
     let entry: FileEntry
     let model: StorageModel
-    let isReadOnly: Bool
+    let trash: TrashCoordinator
+    /// In the Trash: picked for, and deleted, permanently.
+    let isPermanent: Bool
+    let isTopLevel: Bool
     @Binding var expanded: Set<String>
     let onQuickLook: (URL) -> Void
-    let onTrash: (FileEntry) -> Void
+
+    @State private var origin = FrameBox()
 
     var body: some View {
         if entry.isDirectory {
@@ -421,8 +471,8 @@ private struct EntryRow: View {
                         Text("Empty folder").foregroundStyle(.secondary)
                     }
                     ForEach(kids) { child in
-                        EntryRow(entry: child, model: model, isReadOnly: isReadOnly,
-                                 expanded: $expanded, onQuickLook: onQuickLook, onTrash: onTrash)
+                        EntryRow(entry: child, model: model, trash: trash, isPermanent: isPermanent,
+                                 isTopLevel: false, expanded: $expanded, onQuickLook: onQuickLook)
                     }
                 } else {
                     HStack { ProgressView().controlSize(.small); Text("Loading…").foregroundStyle(.secondary) }
@@ -438,8 +488,10 @@ private struct EntryRow: View {
 
     private var label: some View {
         HStack(spacing: 8) {
-            if !isReadOnly {
+            if !isPermanent {
                 TriStateCheckbox(state: model.checkState(of: entry)) { model.toggle(entry) }
+            } else if isTopLevel {
+                TriStateCheckbox(state: model.isPicked(entry) ? .on : .off) { model.togglePick(entry) }
             }
             FileIcon(path: entry.path, isDirectory: entry.isDirectory)
             VStack(alignment: .leading, spacing: 1) {
@@ -456,12 +508,19 @@ private struct EntryRow: View {
                 .foregroundStyle(.secondary)
         }
         .contentShape(.rect)
+        .trashOrigin(origin)
         .contextMenu {
             FileContextMenu(
                 path: entry.path,
                 onQuickLook: onQuickLook,
-                onTrash: isReadOnly ? nil : { onTrash(entry) }
+                onTrash: isPermanent ? nil : { trash.request(model.trashRequest(for: entry), from: origin.rect) }
             )
+            if isPermanent {
+                Divider()
+                Button("Delete Immediately…", systemImage: "trash.slash") {
+                    if let request = model.eraseRequest(for: entry) { trash.request(request) }
+                }
+            }
         }
     }
 
