@@ -171,10 +171,10 @@ struct CleanerStreamTests {
 
     @Test func refusesSystemTrashContentsAndOwnBundle() throws {
         let fake = FakeTrasher()
-        let cleaner = Cleaner(trasher: fake, home: "/Users/test", ownBundlePath: "/Applications/macos-clean.app")
+        let cleaner = Cleaner(trasher: fake, home: "/Users/test", ownBundlePath: "/Applications/macOS Clean.app")
         let paths = [
             "/System/Applications/Mail.app", "/Users/test/.Trash/old.zip", "/Users/test/.Trash",
-            "/Applications/macos-clean.app", "/Applications/macos-clean.app/Contents",
+            "/Applications/macOS Clean.app", "/Applications/macOS Clean.app/Contents",
             "/Users/test/Library", "/Users/test/Library/Caches", "/Users/test/Documents", "/Applications",
         ]
         let outcomes = try cleaner.moveToTrash(paths, confirm: true)

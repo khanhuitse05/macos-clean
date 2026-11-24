@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_PATH="${1:?Usage: create_dmg.sh <path/to/macos-clean.app> <output.dmg> [signing_identity]}"
-DMG_PATH="${2:?Usage: create_dmg.sh <path/to/macos-clean.app> <output.dmg> [signing_identity]}"
+APP_PATH="${1:?Usage: create_dmg.sh <path/to/macOS Clean.app> <output.dmg> [signing_identity]}"
+DMG_PATH="${2:?Usage: create_dmg.sh <path/to/macOS Clean.app> <output.dmg> [signing_identity]}"
 SIGNING_IDENTITY="${3:-Developer ID Application: To Ngoc Khanh (N8L3QK9894)}"
 
 if [[ ! -d "$APP_PATH" ]]; then
@@ -23,7 +23,7 @@ ln -s /Applications "$STAGING_DIR/Applications"
 
 echo "==> Creating compressed DMG at $DMG_PATH..."
 hdiutil create \
-  -volname "macos-clean" \
+  -volname "macOS Clean" \
   -srcfolder "$STAGING_DIR" \
   -ov \
   -format UDZO \

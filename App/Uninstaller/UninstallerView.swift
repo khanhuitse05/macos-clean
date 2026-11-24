@@ -200,7 +200,7 @@ private struct AppDetailPane: View {
                 .listRowSeparator(.hidden)
 
             if case .app(let app) = item, !app.canUninstall {
-                Label(app.isSelf ? "macos-clean can't remove itself. Drag it to the Trash in Finder."
+                Label(app.isSelf ? "macOS Clean can't remove itself. Drag it to the Trash in Finder."
                                  : "This app is part of macOS and can't be removed.",
                       systemImage: "lock.fill")
                     .foregroundStyle(.secondary)

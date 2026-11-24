@@ -3,7 +3,7 @@ import SwiftUI
 @main
 struct MacosCleanApp: App {
     var body: some Scene {
-        Window("macos-clean", id: "main") {
+        Window("macOS Clean", id: "main") {
             ContentView()
                 .frame(minWidth: 860, minHeight: 560)
         }

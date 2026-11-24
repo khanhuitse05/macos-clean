@@ -8,7 +8,7 @@ EXPORT_OPTIONS = File.join(ROOT_DIR, "fastlane", "ExportOptions.plist")
 RELEASE_DIR = File.join(ROOT_DIR, "build", "release")
 ARCHIVE_PATH = File.join(RELEASE_DIR, "macos-clean.xcarchive")
 EXPORT_DIR = File.join(RELEASE_DIR, "export")
-APP_PATH = File.join(EXPORT_DIR, "macos-clean.app")
+APP_PATH = File.join(EXPORT_DIR, "macOS Clean.app")
 DMG_PATH = File.join(RELEASE_DIR, "macos-clean.dmg")
 SHA_PATH = "#{DMG_PATH}.sha256"
 
@@ -101,7 +101,7 @@ platform :mac do
     end
   end
 
-  desc "Archive and export Release macos-clean.app signed with Developer ID Application"
+  desc "Archive and export Release macOS Clean.app signed with Developer ID Application"
   lane :build do |options|
     test unless options[:skip_tests]
 
@@ -139,7 +139,7 @@ platform :mac do
     verify_app_signature!(APP_PATH)
   end
 
-  desc "Notarize macos-clean.app, package signed macos-clean.dmg, notarize & staple DMG"
+  desc "Notarize macOS Clean.app, package signed macos-clean.dmg, notarize & staple DMG"
   lane :package_dmg do |options|
     UI.user_error!("Missing #{APP_PATH}. Run `fastlane build` first.") unless File.exist?(APP_PATH)
 
@@ -166,7 +166,7 @@ platform :mac do
         sh(notarize_script, DMG_PATH, DMG_PATH)
         sh("spctl", "-a", "-vvv", "-t", "exec", APP_PATH)
         sh("spctl", "-a", "-vvv", "-t", "open", "--context", "context:primary-signature", DMG_PATH)
-        UI.success("Gatekeeper assessment passed for both macos-clean.app and macos-clean.dmg!")
+        UI.success("Gatekeeper assessment passed for both macOS Clean.app and macos-clean.dmg!")
       end
 
       sha_digest = Actions.sh("shasum -a 256 #{Shellwords.escape(DMG_PATH)}", log: false).split.first
@@ -197,7 +197,7 @@ platform :mac do
       File.write(index_html, updated_html) if updated_html != html
     end
 
-    commit_message = options[:commit_message]&.to_s || "Release macos-clean v#{version}"
+    commit_message = options[:commit_message]&.to_s || "Release macOS Clean v#{version}"
     Dir.chdir(target_dir) do
       sh("git", "add", "-A")
       if system("git diff --cached --quiet")
@@ -239,14 +239,14 @@ platform :mac do
         "Universal macOS app (Apple Silicon & Intel), signed with Developer ID Application (Hardened Runtime)."
       end
       notes = <<~NOTES
-        ## macos-clean #{tag}
+        ## macOS Clean #{tag}
 
         - #{signing_note}
-        - Install: open `macos-clean.dmg` and drag `macos-clean.app` to `/Applications`.
+        - Install: open `macos-clean.dmg` and drag `macOS Clean.app` to `/Applications`.
 
         ### Verification
         ```bash
-        codesign -dv --verbose=4 /Applications/macos-clean.app
+        codesign -dv --verbose=4 "/Applications/macOS Clean.app"
         ```
         SHA-256 (`macos-clean.dmg`): `#{sha}`
       NOTES
@@ -262,7 +262,7 @@ platform :mac do
           "gh", "release", "create", tag,
           *assets,
           "--repo", repo,
-          "--title", "macos-clean #{tag}",
+          "--title", "macOS Clean #{tag}",
           "--notes", notes,
           "--generate-notes"
         ]

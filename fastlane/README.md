@@ -37,7 +37,7 @@ Regenerate macos-clean.xcodeproj from project.yml
 [bundle exec] fastlane mac build
 ```
 
-Archive and export Release macos-clean.app signed with Developer ID Application
+Archive and export Release macOS Clean.app signed with Developer ID Application
 
 ### mac package_dmg
 
@@ -45,7 +45,7 @@ Archive and export Release macos-clean.app signed with Developer ID Application
 [bundle exec] fastlane mac package_dmg
 ```
 
-Notarize macos-clean.app, package signed macos-clean.dmg, notarize & staple DMG
+Notarize macOS Clean.app, package signed macos-clean.dmg, notarize & staple DMG
 
 ### mac publish_release
 

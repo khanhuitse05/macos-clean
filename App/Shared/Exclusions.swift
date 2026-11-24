@@ -52,7 +52,7 @@ final class ExclusionStore {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Exclude")
-        panel.message = String(localized: "Choose folders macos-clean should never scan or suggest for cleaning.")
+        panel.message = String(localized: "Choose folders macOS Clean should never scan or suggest for cleaning.")
         guard panel.runModal() == .OK else { return }
         let added = panel.urls.compactMap { ExclusionList.normalize($0.path) }
         update(paths + added)

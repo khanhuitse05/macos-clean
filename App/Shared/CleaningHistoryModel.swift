@@ -78,14 +78,14 @@ actor CleaningHistoryStore {
     }
 }
 
-/// "Last cleaned 3 days ago · 42 GB cleaned with macos-clean so far."
+/// "Last cleaned 3 days ago · 42 GB cleaned with macOS Clean so far."
 struct CleaningHistoryLine: View {
     let history: CleaningHistory
 
     var body: some View {
         if let last = history.lastCleaned {
             Label {
-                Text("Last cleaned \(last.formatted(.relative(presentation: .named))) · \(history.lifetimeCleanedBytes.fileSize) cleaned with macos-clean so far")
+                Text("Last cleaned \(last.formatted(.relative(presentation: .named))) · \(history.lifetimeCleanedBytes.fileSize) cleaned with macOS Clean so far")
             } icon: {
                 Image(systemName: "clock.arrow.circlepath")
             }
@@ -121,7 +121,7 @@ struct HistorySettingsSection: View {
         } header: {
             Text("Cleaning History")
         } footer: {
-            Text("\"Cleaned\" counts items macos-clean moved to the Trash and simulators it removed. Emptying the Trash is counted apart, so nothing is counted twice.")
+            Text("\"Cleaned\" counts items macOS Clean moved to the Trash and simulators it removed. Emptying the Trash is counted apart, so nothing is counted twice.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

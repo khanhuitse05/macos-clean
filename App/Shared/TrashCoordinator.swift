@@ -477,7 +477,7 @@ struct CelebrationToast: View {
         case .moveToTrash: "\(items). Empty the Trash to get the space back."
         }
         if !permanent || celebration.action == .removeSimulators, celebration.lifetimeBytes > celebration.bytes {
-            text += " \(celebration.lifetimeBytes.fileSize) cleaned with macos-clean so far."
+            text += " \(celebration.lifetimeBytes.fileSize) cleaned with macOS Clean so far."
         }
         return text
     }

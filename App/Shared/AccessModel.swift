@@ -56,7 +56,7 @@ struct FullDiskAccessBanner: View {
                          ? "macOS blocked access to 1 folder"
                          : "macOS blocked access to \(deniedPaths.count) folders")
                         .font(.headline)
-                    Text("Its contents aren't included. Give macos-clean Full Disk Access in System Settings, reopen the app, then scan again.")
+                    Text("Its contents aren't included. Give macOS Clean Full Disk Access in System Settings, reopen the app, then scan again.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -123,13 +123,13 @@ struct FullDiskAccessWelcome: View {
         VStack(spacing: 18) {
             Text("Allow Full Disk Access")
                 .font(.title2.weight(.semibold))
-            Text("macOS hides many caches, logs and app leftovers from apps without Full Disk Access. Without it, macos-clean can only show part of what can be cleaned.")
+            Text("macOS hides many caches, logs and app leftovers from apps without Full Disk Access. Without it, macOS Clean can only show part of what can be cleaned.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 8) {
                 step(1, "Click Open System Settings.")
-                step(2, "Turn on macos-clean in the Full Disk Access list.")
+                step(2, "Turn on macOS Clean in the Full Disk Access list.")
                 step(3, "Choose Quit & Reopen when macOS asks.")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -155,7 +155,7 @@ struct FullDiskAccessWelcome: View {
         VStack(spacing: 18) {
             Text("Full Disk Access is on")
                 .font(.title2.weight(.semibold))
-            Text("macos-clean can now see every cache, log and leftover it knows how to clean.")
+            Text("macOS Clean can now see every cache, log and leftover it knows how to clean.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

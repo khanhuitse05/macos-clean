@@ -35,24 +35,24 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: macos-clean
+        CFBundleDisplayName: macOS Clean
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleLocalizations: [en]
         LSApplicationCategoryType: public.app-category.utilities
         NSDesktopFolderUsageDescription: >-
-          macos-clean scans your Desktop when you search your Home folder for large files or code-project leftovers. For example, it can show a large video on your Desktop so you can review and move it to the Trash.
+          macOS Clean scans your Desktop when you search your Home folder for large files or code-project leftovers. For example, it can show a large video on your Desktop so you can review and move it to the Trash.
         NSDocumentsFolderUsageDescription: >-
-          macos-clean scans your Documents folder when you search your Home folder for large files or code-project leftovers. For example, it can show a large exported project in Documents so you can review and move it to the Trash.
+          macOS Clean scans your Documents folder when you search your Home folder for large files or code-project leftovers. For example, it can show a large exported project in Documents so you can review and move it to the Trash.
         NSDownloadsFolderUsageDescription: >-
-          macos-clean scans your Downloads folder to calculate file sizes and lets you move selected old downloads to the Trash. For example, it can show a large installer in Downloads so you can review and move it to the Trash.
+          macOS Clean scans your Downloads folder to calculate file sizes and lets you move selected old downloads to the Trash. For example, it can show a large installer in Downloads so you can review and move it to the Trash.
         NSNetworkVolumesUsageDescription: >-
-          macos-clean scans a network volume only when you choose a folder on it in Large Files. For example, it can show large files on a mounted share so you can decide whether to move selected items to the Trash.
+          macOS Clean scans a network volume only when you choose a folder on it in Large Files. For example, it can show large files on a mounted share so you can decide whether to move selected items to the Trash.
         NSRemovableVolumesUsageDescription: >-
-          macos-clean scans a removable drive only when you choose a folder on it in Large Files. For example, it can show large archive files on an external USB drive so you can review and move selected items to the Trash.
+          macOS Clean scans a removable drive only when you choose a folder on it in Large Files. For example, it can show large archive files on an external USB drive so you can review and move selected items to the Trash.
     settings:
       base:
-        PRODUCT_NAME: macos-clean
+        PRODUCT_NAME: macOS Clean
         PRODUCT_MODULE_NAME: MacosClean
         PRODUCT_BUNDLE_IDENTIFIER: com.goldenowl.macos-clean
         MARKETING_VERSION: "1.0.0"
