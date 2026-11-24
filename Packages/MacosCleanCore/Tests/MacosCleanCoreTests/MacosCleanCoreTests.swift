@@ -134,3 +134,66 @@ struct CleanerTests {
         #expect(outcomes[0].error != nil)
     }
 }
+
+@Suite("Cleaner progress and protection")
+struct CleanerStreamTests {
+    @Test func streamRequiresConfirmationBeforeTouchingAnything() {
+        let fake = FakeTrasher()
+        let cleaner = Cleaner(trasher: fake, home: "/Users/test", measuresSize: false)
+        #expect(throws: CleanerError.confirmationRequired) {
+            _ = try cleaner.trash(["/tmp/a"], confirm: false)
+        }
+        #expect(fake.calls.withLock { $0 }.isEmpty)
+    }
+
+    @Test func streamReportsProgressAndSummary() async throws {
+        let tree = try TempTree()
+        let a = try tree.file("a.bin", bytes: 200_000)
+        let b = try tree.file("b.bin", bytes: 100_000)
+        let fake = FakeTrasher(failing: [b.path])
+        let cleaner = Cleaner(trasher: fake, home: "/Users/test")
+        var progress: [CleanProgress] = []
+        var summary: CleanSummary?
+        for await event in try cleaner.trash([a.path, b.path], confirm: true) {
+            switch event {
+            case .progress(let value): progress.append(value)
+            case .finished(let value): summary = value
+            }
+        }
+        #expect(progress.map(\.current) == [0, 1, 2])
+        #expect(progress.last?.succeeded == 1 && progress.last?.failed == 1)
+        let result = try #require(summary)
+        #expect(result.trashedPaths == [a.path])
+        #expect(result.bytesFreed >= 200_000)
+        #expect(result.failures.map(\.path) == [b.path])
+    }
+
+    @Test func refusesSystemTrashContentsAndOwnBundle() throws {
+        let fake = FakeTrasher()
+        let cleaner = Cleaner(trasher: fake, home: "/Users/test", ownBundlePath: "/Applications/macos-clean.app")
+        let paths = [
+            "/System/Applications/Mail.app", "/Users/test/.Trash/old.zip", "/Users/test/.Trash",
+            "/Applications/macos-clean.app", "/Applications/macos-clean.app/Contents",
+            "/Users/test/Library", "/Users/test/Library/Caches", "/Users/test/Documents", "/Applications",
+        ]
+        let outcomes = try cleaner.moveToTrash(paths, confirm: true)
+        #expect(outcomes.allSatisfy { !$0.success && $0.error == Cleaner.refusalMessage })
+        #expect(fake.calls.withLock { $0 }.isEmpty)
+        #expect(cleaner.refusalReason(for: "/Users/test/Library/Caches/com.example") == nil)
+        #expect(cleaner.refusalReason(for: "/Applications/Other.app") == nil)
+    }
+
+    @Test func timesOutWedgedItems() async throws {
+        let cleaner = Cleaner(trasher: SlowTrasher(), home: "/Users/test", itemTimeout: .milliseconds(100), measuresSize: false)
+        var summary: CleanSummary?
+        for await event in try cleaner.trash(["/tmp/wedged"], confirm: true) {
+            if case .finished(let value) = event { summary = value }
+        }
+        #expect(summary?.failed == 1)
+        #expect(summary?.failures.first?.error?.contains("Timed out") == true)
+    }
+}
+
+private struct SlowTrasher: Trashing {
+    func trash(_ url: URL) throws { Thread.sleep(forTimeInterval: 1) }
+}

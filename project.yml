@@ -36,18 +36,18 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: macos-clean
-        CFBundleLocalizations: [en, vi]
+        CFBundleLocalizations: [en]
         LSApplicationCategoryType: public.app-category.utilities
         NSDesktopFolderUsageDescription: >-
-          macos-clean scans your Desktop when you choose Home, Whole Disk, or a Desktop folder in Disk Map or Large Files so it can calculate local storage usage. For example, it can show a large video on your Desktop so you can review and move it to the Trash.
+          macos-clean scans your Desktop when you search your Home folder for large files or code-project leftovers. For example, it can show a large video on your Desktop so you can review and move it to the Trash.
         NSDocumentsFolderUsageDescription: >-
-          macos-clean scans your Documents folder when you choose Home, Whole Disk, or a Documents folder in Disk Map or Large Files so it can calculate local storage usage. For example, it can show a large exported project in Documents so you can review and move it to the Trash.
+          macos-clean scans your Documents folder when you search your Home folder for large files or code-project leftovers. For example, it can show a large exported project in Documents so you can review and move it to the Trash.
         NSDownloadsFolderUsageDescription: >-
           macos-clean scans your Downloads folder to calculate file sizes and lets you move selected old downloads to the Trash. For example, it can show a large installer in Downloads so you can review and move it to the Trash.
         NSNetworkVolumesUsageDescription: >-
-          macos-clean scans network volumes only when you choose a network location or Whole Disk in Disk Map so it can calculate storage usage. For example, it can show large files on a mounted team share so you can decide whether to move selected items to the Trash.
+          macos-clean scans a network volume only when you choose a folder on it in Large Files. For example, it can show large files on a mounted share so you can decide whether to move selected items to the Trash.
         NSRemovableVolumesUsageDescription: >-
-          macos-clean scans removable drives only when you choose a removable drive or Whole Disk in Disk Map so it can calculate storage usage. For example, it can show large archive files on an external USB drive so you can review and move selected items to the Trash.
+          macos-clean scans a removable drive only when you choose a folder on it in Large Files. For example, it can show large archive files on an external USB drive so you can review and move selected items to the Trash.
     settings:
       base:
         PRODUCT_NAME: macos-clean

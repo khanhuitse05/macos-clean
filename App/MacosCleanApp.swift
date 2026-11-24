@@ -3,10 +3,14 @@ import SwiftUI
 @main
 struct MacosCleanApp: App {
     var body: some Scene {
-        WindowGroup("macos-clean", id: "main") {
+        Window("macos-clean", id: "main") {
             ContentView()
-                .frame(minWidth: 760, minHeight: 540)
+                .frame(minWidth: 860, minHeight: 560)
         }
-        .defaultSize(width: 1000, height: 720)
+        .defaultSize(width: 1100, height: 740)
+        .windowToolbarStyle(.unified)
+        .commands {
+            CommandGroup(replacing: .newItem) {}
+        }
     }
 }
