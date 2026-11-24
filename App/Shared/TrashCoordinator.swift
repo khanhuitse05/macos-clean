@@ -56,10 +56,8 @@ final class TrashCoordinator {
     private(set) var celebration: Celebration?
     /// Chips flying from where a move started to the Trash bin.
     private(set) var flights: [TrashFlight] = []
-    /// Where flights land, reported by ``TrashBinView``. Not observed: read when a flight starts.
+    /// Where flights land, reported by ``TrashSidebarItem``. Not observed: read when a flight starts.
     @ObservationIgnored var binFrame: CGRect?
-    /// Called after every permanent delete, so features showing Trash items can drop them.
-    @ObservationIgnored var onErased: (@MainActor (CleanSummary) -> Void)?
 
     let bin: TrashBinModel
 
@@ -70,10 +68,21 @@ final class TrashCoordinator {
     private let cleaner: Cleaner
     private let emptier: TrashEmptier
 
-    init(cleaner: Cleaner = Cleaner(), emptier: TrashEmptier = TrashEmptier()) {
+    init(cleaner: Cleaner = Cleaner(), emptier: TrashEmptier = TrashCoordinator.defaultEmptier) {
         self.cleaner = cleaner
         self.emptier = emptier
         self.bin = TrashBinModel(trashURL: emptier.trashURL)
+    }
+
+    /// The user's Trash. Debug builds accept `-TrashPath <folder>` to show and empty a stand-in
+    /// folder instead, so the Trash section can be tried without touching the real Trash.
+    static var defaultEmptier: TrashEmptier {
+        #if DEBUG
+        if let path = UserDefaults.standard.string(forKey: "TrashPath") {
+            return TrashEmptier(trashURL: URL(fileURLWithPath: path, isDirectory: true))
+        }
+        #endif
+        return TrashEmptier()
     }
 
     var isRunning: Bool {
@@ -139,7 +148,7 @@ final class TrashCoordinator {
                 switch event {
                 case .progress(let progress):
                     phase = .running(request.action, progress)
-                    if request.action.isPermanent { bin.emptying(freed: progress.bytesFreed) }
+                    if request.action.isPermanent { bin.emptying(progress) }
                 case .finished(let result):
                     last = result
                 }
@@ -158,10 +167,7 @@ final class TrashCoordinator {
             bin.receive(bytes: summary.bytesFreed, count: summary.succeeded)
         }
         // Rows leave the lists with an animation in every feature.
-        Motion.animate {
-            request.onFinish(summary)
-            if request.action.isPermanent { onErased?(summary) }
-        }
+        Motion.animate { request.onFinish(summary) }
         if summary.failed == 0, summary.succeeded > 0 {
             // Everything worked: close the sheet (if it opened) and celebrate instead.
             phase = .idle

@@ -52,20 +52,6 @@ struct SafetyBadge: View {
     }
 }
 
-/// Marks the Trash category: what's deleted there is gone for good.
-struct PermanentBadge: View {
-    var body: some View {
-        Text("Permanent")
-            .font(.caption2.weight(.semibold))
-            .textCase(.uppercase)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .foregroundStyle(.red)
-            .background(Color.red.opacity(0.15), in: .capsule)
-            .help("Items here are deleted permanently, not moved to the Trash")
-    }
-}
-
 /// Floating glass bar pinned to the bottom of a feature: what's selected + the primary action.
 struct SelectionBar<Actions: View>: View {
     let title: String

@@ -83,6 +83,9 @@ enum MascotDirector {
                 hasBottomBar: true
             )
 
+        case .trash:
+            return trashScene(state, trashing: trashing)
+
         case .uninstaller:
             let model = state.uninstaller
             let item = model.selectedItem
@@ -109,6 +112,24 @@ enum MascotDirector {
                 hasBottomBar: checked > 0
             )
         }
+    }
+
+    private static func trashScene(_ state: AppState, trashing: Bool) -> MascotScene {
+        let bin = state.trash.bin
+        let mood = MascotMood.resolve(MascotInputs(
+            isScanning: !bin.isMeasured && !bin.isBlocked,
+            hasResults: bin.isMeasured,
+            foundBytes: bin.bytes,
+            isTrashing: trashing,
+            isAccessBlocked: bin.isBlocked,
+            largestItemBytes: bin.items.lazy.map(\.sizeBytes).max() ?? 0
+        ))
+        return MascotScene(
+            section: .trash, mood: mood,
+            selectionShare: share(bin.pickedBytes, of: bin.bytes),
+            selectedCount: bin.picks.count,
+            hasBottomBar: !bin.picks.isEmpty
+        )
     }
 
     private static func share(_ part: Int64, of total: Int64) -> Double {

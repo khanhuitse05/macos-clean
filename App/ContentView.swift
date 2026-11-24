@@ -2,9 +2,12 @@ import MacosCleanCore
 import SwiftUI
 
 enum AppSection: String, Hashable, CaseIterable, Identifiable {
-    case storage, largeFiles, fileBrowser, uninstaller
+    case storage, largeFiles, fileBrowser, uninstaller, trash
 
     var id: String { rawValue }
+
+    /// The sections listed under "Clean Up"; the Trash sits apart at the bottom of the sidebar.
+    static let cleanUp: [AppSection] = [.storage, .largeFiles, .fileBrowser, .uninstaller]
 
     var title: LocalizedStringKey {
         switch self {
@@ -12,6 +15,7 @@ enum AppSection: String, Hashable, CaseIterable, Identifiable {
         case .largeFiles: "Large Files"
         case .fileBrowser: "File Browser"
         case .uninstaller: "Uninstaller"
+        case .trash: "Trash"
         }
     }
 
@@ -21,6 +25,7 @@ enum AppSection: String, Hashable, CaseIterable, Identifiable {
         case .largeFiles: "doc.text.magnifyingglass"
         case .fileBrowser: "rectangle.split.3x1"
         case .uninstaller: "xmark.app"
+        case .trash: "trash"
         }
     }
 }
@@ -29,7 +34,7 @@ enum AppSection: String, Hashable, CaseIterable, Identifiable {
 @MainActor
 @Observable
 final class AppState {
-    var section: AppSection? = .storage
+    var section: AppSection? = AppState.initialSection
     let storage = StorageModel()
     let largeFiles = LargeFilesModel()
     let fileBrowser = FileBrowserModel()
@@ -37,10 +42,14 @@ final class AppState {
     let trash = TrashCoordinator()
     let access = AccessModel()
 
-    /// Opens Storage Manager with the Trash category expanded.
-    func revealTrash() {
-        section = .storage
-        storage.reveal(categoryID: "trash")
+    /// Debug builds accept `-StartSection <name>` (e.g. `trash`) to open on a section, for screenshots.
+    private static var initialSection: AppSection {
+        #if DEBUG
+        if let raw = UserDefaults.standard.string(forKey: "StartSection"), let section = AppSection(rawValue: raw) {
+            return section
+        }
+        #endif
+        return .storage
     }
 }
 
@@ -64,6 +73,8 @@ struct ContentView: View {
                     FileBrowserView(model: state.fileBrowser, trash: state.trash, access: state.access)
                 case .uninstaller:
                     UninstallerView(model: state.uninstaller, trash: state.trash, access: state.access)
+                case .trash:
+                    TrashView(bin: state.trash.bin, trash: state.trash, access: state.access)
                 }
             }
             // Bubbl floats over every section, in a corner the user can change by dragging.
@@ -76,7 +87,6 @@ struct ContentView: View {
             FullDiskAccessWelcome(access: state.access)
         }
         .task {
-            state.trash.onErased = { [storage = state.storage] summary in storage.noteErased(summary) }
             state.trash.bin.start()
             state.access.showWelcomeIfNeeded()
             // Start watching Applications right away so removals are noticed in any section.
@@ -99,7 +109,7 @@ private struct Sidebar: View {
     var body: some View {
         List(selection: $state.section) {
             Section("Clean Up") {
-                ForEach(AppSection.allCases) { section in
+                ForEach(AppSection.cleanUp) { section in
                     Label(section.title, systemImage: section.systemImage)
                         .badge(badge(for: section))
                         .tag(section)
@@ -107,15 +117,19 @@ private struct Sidebar: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            VStack(alignment: .leading, spacing: 10) {
-                TrashBinView(
+            VStack(alignment: .leading, spacing: 8) {
+                if !state.access.hasFullDiskAccess {
+                    fullDiskAccessButton.padding(.horizontal, 8)
+                }
+                Divider().padding(.horizontal, 6)
+                TrashSidebarItem(
                     coordinator: state.trash,
-                    onReveal: { state.revealTrash() },
-                    onBlockedTap: { state.access.isShowingWelcome = true }
+                    isSelected: state.section == .trash,
+                    onSelect: { state.section = .trash }
                 )
-                if !state.access.hasFullDiskAccess { fullDiskAccessButton }
             }
-            .padding(12)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
         }
     }
 

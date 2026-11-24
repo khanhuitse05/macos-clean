@@ -1,15 +1,31 @@
 import AppKit
 import MacosCleanCore
 import SwiftUI
+import UniformTypeIdentifiers
 
-/// Live size of the user's Trash, for the bin at the bottom of the sidebar. Measured on start,
-/// re-measured whenever the Trash changes on disk (including from Finder), and nudged
-/// optimistically while items fly in or are being deleted so the numbers move with the motion.
+/// One top-level item in the Trash.
+struct TrashItem: Identifiable, Hashable, Sendable {
+    let path: String
+    let name: String
+    let sizeBytes: Int64
+    let isDirectory: Bool
+    let kind: String
+    /// When it was put in the Trash (the date it was added to the Trash folder).
+    let dateTrashed: Date
+
+    var id: String { path }
+}
+
+/// The user's Trash: its items, live size, and the items picked for permanent deletion.
+/// Measured on start, re-measured whenever the Trash changes on disk (including from Finder),
+/// and nudged optimistically while items fly in or are being deleted, so the numbers move
+/// with the motion.
 @MainActor
 @Observable
 final class TrashBinModel {
     private(set) var bytes: Int64 = 0
     private(set) var itemCount = 0
+    private(set) var items: [TrashItem] = []
     private(set) var isMeasured = false
     /// macOS hides the Trash's contents without Full Disk Access.
     private(set) var isBlocked = false
@@ -19,16 +35,32 @@ final class TrashBinModel {
     /// Bumps when a delete finishes: sparkles.
     private(set) var emptied = 0
 
+    /// Items picked for permanent deletion.
+    private(set) var picks: Set<String> = [] { didSet { recomputePicks() } }
+    private(set) var pickedBytes: Int64 = 0
+
+    var searchText = ""
+    var sortOrder: [KeyPathComparator<TrashItem>] = [KeyPathComparator(\.sizeBytes, order: .reverse)] {
+        didSet { items.sort(using: sortOrder) }
+    }
+
     let trashURL: URL
 
     @ObservationIgnored private var watcher: FileSystemWatcher?
     @ObservationIgnored private var measureTask: Task<Void, Never>?
     @ObservationIgnored private var emptyingStart: (bytes: Int64, count: Int) = (0, 0)
+    @ObservationIgnored private var emptyingSucceeded = 0
     /// Flights in the air. Measurements wait for them, so bytes aren't counted twice.
     @ObservationIgnored private var inFlight = 0
 
     init(trashURL: URL) {
         self.trashURL = trashURL
+    }
+
+    var visibleItems: [TrashItem] {
+        let query = searchText.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return items }
+        return items.filter { $0.name.localizedStandardContains(query) || $0.kind.localizedStandardContains(query) }
     }
 
     func start() {
@@ -43,6 +75,33 @@ final class TrashBinModel {
 
     /// Re-measures soon, e.g. when the app becomes active (Full Disk Access may have changed).
     func refresh() { scheduleMeasure() }
+
+    // MARK: Picks
+
+    func isPicked(_ item: TrashItem) -> Bool { picks.contains(item.id) }
+
+    func setPicked(_ item: TrashItem, _ picked: Bool) {
+        if picked { picks.insert(item.id) } else { picks.remove(item.id) }
+    }
+
+    func pick(_ ids: Set<String>) { picks.formUnion(ids) }
+
+    func pickAllVisible() { picks.formUnion(visibleItems.map(\.id)) }
+
+    func clearPicks() { picks.removeAll() }
+
+    /// Permanently deletes the picked items, or the given ones.
+    func eraseRequest(for ids: Set<String>? = nil) -> TrashCoordinator.Request? {
+        let chosen = items.filter { (ids ?? picks).contains($0.id) }
+        guard !chosen.isEmpty else { return nil }
+        let bytes = chosen.reduce(0) { $0 + $1.sizeBytes }
+        return .erase(chosen.map(\.path), bytes: bytes, name: chosen.count == 1 ? chosen[0].name : nil)
+    }
+
+    private func recomputePicks() {
+        let total = items.lazy.filter { self.picks.contains($0.id) }.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        if pickedBytes != total { pickedBytes = total }
+    }
 
     // MARK: Moves
 
@@ -64,17 +123,31 @@ final class TrashBinModel {
     func beginEmptying() {
         measureTask?.cancel()
         emptyingStart = (bytes, itemCount)
+        emptyingSucceeded = 0
         Motion.animate { isEmptying = true }
     }
 
-    func emptying(freed: Int64) {
-        Motion.animate(.smooth(duration: 0.4)) { bytes = max(0, emptyingStart.bytes - freed) }
+    /// Counts down and drops each row as soon as it's gone.
+    func emptying(_ progress: CleanProgress) {
+        let removedOne = progress.succeeded > emptyingSucceeded && !progress.path.isEmpty
+        emptyingSucceeded = progress.succeeded
+        Motion.animate(.smooth(duration: 0.35)) {
+            bytes = max(0, emptyingStart.bytes - progress.bytesFreed)
+            if removedOne {
+                items.removeAll { $0.path == progress.path }
+                picks.remove(progress.path)
+                itemCount = max(0, emptyingStart.count - progress.succeeded)
+            }
+        }
     }
 
     func finishEmptying(_ summary: CleanSummary) {
+        let gone = summary.trashedPaths
         Motion.animate(.smooth(duration: 0.5)) {
             bytes = max(0, emptyingStart.bytes - summary.bytesFreed)
             itemCount = max(0, emptyingStart.count - summary.succeeded)
+            items.removeAll { gone.contains($0.path) }
+            picks.subtract(gone)
             isEmptying = false
         }
         if summary.succeeded > 0 { emptied += 1 }
@@ -84,8 +157,7 @@ final class TrashBinModel {
     // MARK: Measuring
 
     private struct Measurement: Sendable {
-        var bytes: Int64 = 0
-        var count = 0
+        var items: [TrashItem] = []
         var blocked = false
     }
 
@@ -108,39 +180,65 @@ final class TrashBinModel {
 
     @concurrent
     private static func measure(_ url: URL) async -> Measurement {
-        let items: [URL]
+        let urls: [URL]
         do {
-            items = try TrashEmptier(trashURL: url).contents()
+            urls = try TrashEmptier(trashURL: url).contents()
         } catch {
             return Measurement(blocked: true)
         }
-        let sizes = await SizeCalculator.measureAll(items)
-        return Measurement(bytes: sizes.reduce(0) { $0 + $1.bytes }, count: items.count)
+        let sizes = await SizeCalculator.measureAll(urls)
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .addedToDirectoryDateKey, .contentModificationDateKey, .contentTypeKey]
+        let items = zip(urls, sizes).map { url, size in
+            let values = try? url.resourceValues(forKeys: keys)
+            let isFolder = values?.isDirectory == true && values?.isPackage != true
+            return TrashItem(
+                path: url.path,
+                name: url.lastPathComponent,
+                sizeBytes: size.bytes,
+                isDirectory: isFolder,
+                kind: isFolder ? "Folder" : Self.sentenceCase(values?.contentType?.localizedDescription ?? "Document"),
+                dateTrashed: values?.addedToDirectoryDate ?? values?.contentModificationDate ?? .distantPast
+            )
+        }
+        return Measurement(items: items)
+    }
+
+    /// "text" → "Text"; leaves "QuickTime movie" alone.
+    private nonisolated static func sentenceCase(_ text: String) -> String {
+        text.prefix(1).uppercased() + text.dropFirst()
     }
 
     private func apply(_ measurement: Measurement) {
         isMeasured = true
         if isBlocked != measurement.blocked { isBlocked = measurement.blocked }
-        guard !measurement.blocked, measurement.bytes != bytes || measurement.count != itemCount else { return }
+        guard !measurement.blocked else { return }
+        let sorted = measurement.items.sorted(using: sortOrder)
+        let total = sorted.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        guard sorted != items || total != bytes || sorted.count != itemCount else { return }
         Motion.animate(.smooth(duration: 0.6)) {
-            bytes = measurement.bytes
-            itemCount = measurement.count
+            items = sorted
+            bytes = total
+            itemCount = sorted.count
+            let present = Set(sorted.map(\.id))
+            if !picks.isSubset(of: present) { picks.formIntersection(present) } else { recomputePicks() }
         }
     }
 }
 
-// MARK: - Sidebar bin
+// MARK: - Sidebar entry
 
-/// The Trash at the bottom of the sidebar: live size, an Empty button, and the target that
-/// moved items fly into.
-struct TrashBinView: View {
+/// The Trash at the bottom of the sidebar: a selectable row that opens the Trash section,
+/// shows its live size, and is the target moved items fly into.
+struct TrashSidebarItem: View {
     let coordinator: TrashCoordinator
-    let onReveal: () -> Void
-    let onBlockedTap: () -> Void
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    @State private var isHovering = false
 
     var body: some View {
         let bin = coordinator.bin
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             BinIcon(
                 isFull: bin.itemCount > 0, isEmptying: bin.isEmptying,
                 arrivals: bin.arrivals, emptied: bin.emptied
@@ -148,62 +246,61 @@ struct TrashBinView: View {
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(TrashFlight.space)) } action: {
                 coordinator.binFrame = $0
             }
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Trash").font(.callout.weight(.medium))
-                status(bin)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            if bin.itemCount > 0, !bin.isBlocked {
-                Button("Empty…") { coordinator.requestEmptyTrash() }
-                    .controlSize(.small)
-                    .buttonStyle(.glass)
-                    .disabled(coordinator.isRunning)
-                    .help("Delete everything in the Trash permanently")
-                    .motionTransition(.scale(scale: 0.8).combined(with: .opacity))
-            }
+            Text("Trash")
+                .lineLimit(1)
+            Spacer(minLength: 6)
+            badge(bin)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(.quaternary.opacity(0.45), in: .rect(cornerRadius: 10))
-        .contentShape(.rect(cornerRadius: 10))
-        .onTapGesture { bin.isBlocked ? onBlockedTap() : onReveal() }
+        .padding(.leading, 6)
+        .padding(.trailing, 8)
+        .frame(height: 34)
+        .background(background, in: .rect(cornerRadius: 8))
+        .contentShape(.rect(cornerRadius: 8))
+        .onTapGesture(perform: onSelect)
+        .onHover { isHovering = $0 }
         .contextMenu {
             Button("Open Trash in Finder", systemImage: "folder") { FileActions.openTrash() }
-            Button("Show in Storage Manager", systemImage: "internaldrive", action: onReveal)
             Divider()
             Button("Empty Trash…", systemImage: "trash.slash") { coordinator.requestEmptyTrash() }
                 .disabled(bin.itemCount == 0 || bin.isBlocked || coordinator.isRunning)
         }
-        .motionAnimation(.snappy, value: bin.itemCount > 0)
-        .help(bin.isBlocked ? "Grant Full Disk Access to see what's in the Trash" : "Click to see what's in the Trash")
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Trash")
+        .help(help(bin))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction(.default, onSelect)
     }
 
+    private var background: AnyShapeStyle {
+        if isSelected { return AnyShapeStyle(.quaternary) }
+        return AnyShapeStyle(isHovering ? Color.primary.opacity(0.06) : Color.clear)
+    }
+
+    /// Size in a small capsule; turns red and counts down while emptying.
     @ViewBuilder
-    private func status(_ bin: TrashBinModel) -> some View {
+    private func badge(_ bin: TrashBinModel) -> some View {
         if bin.isBlocked {
-            Label("No access", systemImage: "lock.fill")
+            Image(systemName: "lock.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         } else if !bin.isMeasured {
-            Text("Measuring…")
-        } else if bin.isEmptying {
-            HStack(spacing: 3) {
-                Text("Emptying…")
-                CountingBytes(bytes: Double(bin.bytes))
-            }
-        } else if bin.itemCount == 0 {
-            Text("Empty")
-        } else {
-            HStack(spacing: 3) {
-                CountingBytes(bytes: Double(bin.bytes))
-                Text("· \(bin.itemCount.formatted()) \(bin.itemCount == 1 ? "item" : "items")")
-                    .contentTransition(.numericText())
-            }
+            ProgressView().controlSize(.mini)
+        } else if bin.itemCount > 0 || bin.isEmptying {
+            CountingBytes(bytes: Double(bin.bytes))
+                .font(.caption.weight(.medium))
+                .lineLimit(1)
+                .fixedSize()
+                .foregroundStyle(bin.isEmptying ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(bin.isEmptying ? AnyShapeStyle(.red) : AnyShapeStyle(.quaternary), in: .capsule)
+                .motionTransition(.scale(scale: 0.6).combined(with: .opacity))
         }
+    }
+
+    private func help(_ bin: TrashBinModel) -> String {
+        if bin.isBlocked { return "Grant Full Disk Access to see what's in the Trash" }
+        if bin.itemCount == 0 { return "The Trash is empty" }
+        return "\(bin.itemCount.formatted()) \(bin.itemCount == 1 ? "item" : "items") · \(bin.bytes.fileSize)"
     }
 }
 
@@ -218,7 +315,7 @@ private struct BinIcon: View {
 
     var body: some View {
         Image(systemName: isFull ? "trash.fill" : "trash")
-            .font(.title2)
+            .font(.title3)
             .foregroundStyle(isEmptying ? AnyShapeStyle(.red) : AnyShapeStyle(.tint))
             .contentTransition(.symbolEffect(.replace))
             .symbolEffect(.wiggle, options: .repeat(.continuous), isActive: isEmptying)
@@ -242,7 +339,7 @@ private struct BinIcon: View {
             .overlay(alignment: .top) {
                 if !reduceMotion { SparkleBurst(trigger: emptied).offset(y: -2) }
             }
-            .frame(width: 28, height: 28)
+            .frame(width: 24, height: 24)
             .accessibilityHidden(true)
     }
 
