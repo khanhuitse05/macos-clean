@@ -49,13 +49,40 @@ public enum DuplicateEvent: Sendable, Equatable {
 /// opened.
 ///
 /// Skips what Large Files skips (caches, containers, the Trash, Photos libraries, `.git`,
-/// `node_modules`, app bundles) plus excluded folders. Hard links are one file. APFS clones of
+/// `node_modules`, app bundles), folders that developer tools generate (`.dart_tool`, `.gradle`,
+/// `.idea`, `.vscode`, a project's `build`/`target`, …) plus excluded folders. Hard links are one file. APFS clones of
 /// each other share their blocks, so deleting one frees nothing: they count as one copy.
 public struct DuplicateFinder: Sendable {
     public let root: URL
     public let minimumBytes: Int64
     public let maxDepth: Int
     public let exclusions: ExclusionList
+
+    /// Folders that developer tools and IDEs create and fill with copies of the same files.
+    /// Duplicates in them aren't worth cleaning one by one: the tools recreate them.
+    static let developerFolderNames: Set<String> = DevProjectScanner.unmistakable.union([
+        // IDE and editor settings
+        ".idea", ".vscode", ".vs", ".fleet", ".history", "xcuserdata",
+        // SwiftPM, Flutter/Dart, Android, Kotlin, CMake
+        ".build", ".swiftpm", ".pub-cache", ".fvm", ".cxx", ".externalNativeBuild", ".kotlin",
+        // Python, Ruby, JS tooling
+        ".venv", ".eggs", ".hypothesis", ".ipynb_checkpoints", ".yarn", ".pnpm-store", ".bundle",
+        "Carthage",
+    ])
+
+    /// Generic names (`build`, `target`, …) that only mean generated output inside a project.
+    static let projectOutputNames: Set<String> = DevProjectScanner.projectScoped
+        .union(DevProjectScanner.ambiguous)
+
+    static func isDeveloperFolder(name: String, path: String) -> Bool {
+        if developerFolderNames.contains(name) || name.hasSuffix(".egg-info") { return true }
+        guard projectOutputNames.contains(name) else { return false }
+        // `build` next to a pubspec.yaml / build.gradle / package.json / .git is generated output;
+        // a `build` folder elsewhere may be the user's own.
+        let parent = (path as NSString).deletingLastPathComponent
+        guard let siblings = try? FileManager.default.contentsOfDirectory(atPath: parent) else { return false }
+        return siblings.contains { $0 == ".git" || DevProjectScanner.isManifestName($0) }
+    }
 
     /// Bytes hashed at each end of a file in the partial stage.
     static let edgeBytes = 64 * 1024
@@ -308,7 +335,8 @@ public struct DuplicateFinder: Sendable {
                 if depth >= maxDepth { return .skipChildren }
                 let name = entry.name
                 if LargeFileScanner.skipNames.contains(name)
-                    || rules.contains(where: { $0.matches(name: name, path: entry.path) }) {
+                    || rules.contains(where: { $0.matches(name: name, path: entry.path) })
+                    || DuplicateFinder.isDeveloperFolder(name: name, path: entry.path) {
                     return .skipChildren
                 }
                 // Packages (apps, bundles, Photos libraries) are whole units, not loose files.

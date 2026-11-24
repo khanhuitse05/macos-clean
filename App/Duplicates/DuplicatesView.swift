@@ -64,7 +64,7 @@ struct DuplicatesView: View {
             ContentUnavailableView {
                 Label("Find duplicate files", systemImage: "doc.on.doc")
             } description: {
-                Text("Look for identical files of \(model.minimumMB.formatted()) MB or more in your \(model.rootDisplayName) folder. Files are compared by size, then by their first and last bytes, then byte for byte. Caches, app bundles, Photos libraries and excluded folders are skipped.")
+                Text("Look for identical files of \(model.minimumMB.formatted()) MB or more in your \(model.rootDisplayName) folder. Files are compared by size, then by their first and last bytes, then byte for byte. Caches, app bundles, Photos libraries, folders that developer tools generate (like .dart_tool, .gradle, .idea or a project’s build folder) and excluded folders are skipped.")
             } actions: {
                 Button("Scan \(model.rootDisplayName)") { model.scan() }
                     .buttonStyle(.glassProminent)

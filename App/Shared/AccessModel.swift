@@ -9,20 +9,29 @@ final class AccessModel {
     private(set) var hasFullDiskAccess = true
     var isShowingWelcome = false
 
+    /// Set once the first-launch explainer has been shown; later launches only remind daily.
+    private static let onboardedKey = "fdaOnboardingShown"
     private static let snoozeKey = "fdaWelcomeShownAt"
     private static let snoozeInterval: TimeInterval = 24 * 60 * 60
 
     func refresh() {
-        hasFullDiskAccess = AccessCheck.hasFullDiskAccess()
+        let granted = AccessCheck.hasFullDiskAccess()
+        if granted != hasFullDiskAccess { hasFullDiskAccess = granted }
     }
 
-    /// Shows the explainer at launch when access is missing, at most once a day.
-    func showWelcomeIfNeeded() {
+    /// Asks for Full Disk Access the first time the app opens, then at most once a day while
+    /// access is still missing. Waits a moment so the sheet attaches to a visible window.
+    func showWelcomeIfNeeded() async {
         refresh()
         guard !hasFullDiskAccess else { return }
-        let last = UserDefaults.standard.double(forKey: Self.snoozeKey)
-        guard Date().timeIntervalSince1970 - last > Self.snoozeInterval else { return }
-        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.snoozeKey)
+        let defaults = UserDefaults.standard
+        let isFirstLaunch = !defaults.bool(forKey: Self.onboardedKey)
+        let last = defaults.double(forKey: Self.snoozeKey)
+        guard isFirstLaunch || Date().timeIntervalSince1970 - last > Self.snoozeInterval else { return }
+        try? await Task.sleep(for: .milliseconds(350))
+        guard !Task.isCancelled else { return }
+        defaults.set(true, forKey: Self.onboardedKey)
+        defaults.set(Date().timeIntervalSince1970, forKey: Self.snoozeKey)
         isShowingWelcome = true
     }
 
@@ -84,14 +93,34 @@ struct FullDiskAccessBanner: View {
 
 struct FullDiskAccessWelcome: View {
     let access: AccessModel
+    /// Called after access turns on while the sheet is open, so sections can rescan.
+    var onGranted: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(spacing: 18) {
-            Image(systemName: "lock.shield")
+            Image(systemName: access.hasFullDiskAccess ? "checkmark.shield" : "lock.shield")
                 .font(.system(size: 52, weight: .regular))
-                .foregroundStyle(.tint)
+                .foregroundStyle(access.hasFullDiskAccess ? AnyShapeStyle(.green) : AnyShapeStyle(.tint))
                 .symbolRenderingMode(.hierarchical)
+                .contentTransition(.symbolEffect(.replace))
+            if access.hasFullDiskAccess {
+                granted
+            } else {
+                request
+            }
+        }
+        .padding(28)
+        .frame(width: 460)
+        .animation(.smooth, value: access.hasFullDiskAccess)
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            // Back from System Settings: pick up the new permission without a relaunch when possible.
+            access.refresh()
+        }
+    }
+
+    private var request: some View {
+        VStack(spacing: 18) {
             Text("Allow Full Disk Access")
                 .font(.title2.weight(.semibold))
             Text("macOS hides many caches, logs and app leftovers from apps without Full Disk Access. Without it, macos-clean can only show part of what can be cleaned.")
@@ -115,16 +144,28 @@ struct FullDiskAccessWelcome: View {
                 Button("Not Now") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Open System Settings") {
-                    access.openSettings()
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.glassProminent)
+                Button("Open System Settings") { access.openSettings() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.glassProminent)
             }
         }
-        .padding(28)
-        .frame(width: 460)
+    }
+
+    private var granted: some View {
+        VStack(spacing: 18) {
+            Text("Full Disk Access is on")
+                .font(.title2.weight(.semibold))
+            Text("macos-clean can now see every cache, log and leftover it knows how to clean.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Continue") {
+                onGranted?()
+                dismiss()
+            }
+            .keyboardShortcut(.defaultAction)
+            .buttonStyle(.glassProminent)
+        }
     }
 
     private func step(_ number: Int, _ text: LocalizedStringKey) -> some View {

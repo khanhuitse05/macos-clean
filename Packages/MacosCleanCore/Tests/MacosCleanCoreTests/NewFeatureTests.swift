@@ -328,6 +328,31 @@ struct DuplicateFinderTests {
         #expect(await DuplicateFinder(root: tree.root, minimumBytes: 100_000, exclusions: exclusions).find().isEmpty)
     }
 
+    @Test func skipsDeveloperToolFolders() async throws {
+        let tree = try TempTree()
+        let content = bytes(300_000, seed: 9)
+        try write(content, tree, "app/.dart_tool/a.bin")
+        try write(content, tree, "app/.idea/a.bin")
+        try write(content, tree, "app/.vscode/a.bin")
+        try write(content, tree, "app/android/.gradle/a.bin")
+        try write(content, tree, "pkg/thing.egg-info/a.bin")
+        // `build` inside a project is generated; the project's own sources are not skipped.
+        try write(Data("name: app".utf8), tree, "app/pubspec.yaml")
+        try write(content, tree, "app/build/a.bin")
+        try write(content, tree, "app/lib/a.bin")
+        let groups = await DuplicateFinder(root: tree.root, minimumBytes: 100_000).find()
+        #expect(groups.isEmpty)
+    }
+
+    @Test func keepsBuildFolderOutsideProjects() async throws {
+        let tree = try TempTree()
+        let content = bytes(300_000, seed: 10)
+        try write(content, tree, "Documents/build/a.bin")
+        try write(content, tree, "Documents/b.bin")
+        let groups = await DuplicateFinder(root: tree.root, minimumBytes: 100_000).find()
+        #expect(groups.map(\.files.count) == [2])
+    }
+
     @Test func streamsProgressAndFinishes() async throws {
         let tree = try TempTree()
         let content = bytes(300_000, seed: 9)

@@ -54,6 +54,26 @@ final class AppState {
         section = .uninstaller
     }
 
+    /// True while a section is scanning or measuring, so its sidebar row can show a spinner.
+    func isScanning(_ section: AppSection) -> Bool {
+        switch section {
+        case .storage:
+            storage.isScanningAll || !storage.refreshing.isEmpty
+                || storage.categories.contains { storage.phase(of: $0) == .scanning }
+        case .largeFiles:
+            largeFiles.isScanning
+        case .duplicates:
+            duplicates.isScanning
+        case .fileBrowser:
+            // Only once browsing started; an untouched File Browser isn't measuring anything.
+            fileBrowser.state(of: fileBrowser.root.path).map { !$0.isMeasured && !$0.isDenied } ?? false
+        case .uninstaller:
+            uninstaller.isLoading || !uninstaller.loadingLeftovers.isEmpty
+        case .trash:
+            !trash.bin.isMeasured && !trash.bin.isBlocked
+        }
+    }
+
     init() {
         // Excluded folders disappear from every section at once.
         ExclusionStore.shared.observe { [storage, largeFiles, duplicates, uninstaller] list in
@@ -112,17 +132,23 @@ struct ContentView: View {
         // Bounce, wiggle and rotate effects everywhere are motion; drop them all at once.
         .symbolEffectsRemoved(reduceMotion)
         .sheet(isPresented: $access.isShowingWelcome) {
-            FullDiskAccessWelcome(access: state.access)
+            FullDiskAccessWelcome(access: state.access) {
+                state.trash.bin.refresh()
+                Task { await state.storage.scanAll() }
+            }
         }
         .task {
             state.trash.bin.start()
-            state.access.showWelcomeIfNeeded()
             // Start watching Applications right away so removals are noticed in any section.
             state.uninstaller.start()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Full Disk Access may have been granted meanwhile.
             state.trash.bin.refresh()
+            state.access.refresh()
+        }
+        .task {
+            await state.access.showWelcomeIfNeeded()
         }
         .task {
             // Last run's results appear at once; a background rescan then refreshes them.
@@ -138,9 +164,20 @@ private struct Sidebar: View {
         List(selection: $state.section) {
             Section("Clean Up") {
                 ForEach(AppSection.cleanUp) { section in
-                    Label(section.title, systemImage: section.systemImage)
-                        .badge(badge(for: section))
-                        .tag(section)
+                    let scanning = state.isScanning(section)
+                    HStack(spacing: 6) {
+                        Label(section.title, systemImage: section.systemImage)
+                        Spacer(minLength: 4)
+                        if scanning {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .transition(.opacity)
+                                .accessibilityLabel("Scanning")
+                        }
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: scanning)
+                    .badge(scanning ? nil : badge(for: section))
+                    .tag(section)
                 }
             }
         }
