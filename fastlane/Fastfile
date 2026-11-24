@@ -186,7 +186,9 @@ platform :mac do
       end
       sh("git", "push", "-u", "origin", "main") unless options[:skip_push]
       unless options[:skip_push]
-        subtree_sha = Actions.sh("git subtree split --prefix=web HEAD", log: false).strip
+        subtree_out = Actions.sh("git subtree split --prefix=web HEAD", log: false)
+        subtree_sha = subtree_out[/([0-9a-f]{40})\s*\z/, 1]
+        UI.user_error!("Could not determine subtree commit for web/") unless subtree_sha
         sh("git", "push", "origin", "#{subtree_sha}:refs/heads/gh-pages", "--force")
       end
     end
