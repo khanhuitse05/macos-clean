@@ -30,6 +30,8 @@ struct BubblPose: Equatable {
     var trail = 0.0
     var dust = 0.0
     var zzz = 0.0
+    /// Open "O" mouth (whoa).
+    var mouth = 0.0
 
     static let blendDuration = 0.6
 
@@ -69,6 +71,11 @@ struct BubblPose: Equatable {
             pose.wobbleAmp = 0.01
             pose.eyeLookX = 3
             pose.pane = 1
+        case .whoa(let bytes):
+            pose.scale = MascotMood.puffScale(for: bytes)
+            pose.eyeOpen = 1.35
+            pose.mouth = 1
+            pose.wobbleAmp = 0.04
         }
         return pose
     }
@@ -92,7 +99,8 @@ struct BubblPose: Equatable {
             glint: mix(glint, other.glint),
             trail: mix(trail, other.trail),
             dust: mix(dust, other.dust),
-            zzz: mix(zzz, other.zzz)
+            zzz: mix(zzz, other.zzz),
+            mouth: mix(mouth, other.mouth)
         )
     }
 }
@@ -194,6 +202,60 @@ struct BubblSplitPhase {
         case ..<0.45: distance = reach * BubblMotion.easeOut((e - 0.15) / 0.3)
         case ..<1.15: distance = reach + 3 * sin((e - 0.45) * 14)
         default: distance = reach * (1 - BubblMotion.easeInOut((e - 1.15) / 0.3))
+        }
+    }
+}
+
+/// Short reactions to what the user just did (see ``MascotReaction``).
+struct BubblReactionPhase {
+    var scaleX = 1.0
+    var scaleY = 1.0
+    var offsetY = 0.0
+    /// 0 open … 1 eyes squeezed shut.
+    var squint = 0.0
+    /// 0 … 1 toward the content (glance).
+    var look = 0.0
+
+    static func duration(of kind: MascotReaction) -> Double {
+        switch kind {
+        case .gulp: 0.45
+        case .bigGulp: 0.8
+        case .spit: 0.4
+        case .dive, .surface: 0.7
+        case .glance: 1.2
+        }
+    }
+
+    init(kind: MascotReaction?, elapsed e: Double?) {
+        guard let kind, let e, e >= 0 else { return }
+        let length = Self.duration(of: kind)
+        guard e < length else { return }
+        let p = e / length
+        let bump = sin(p * .pi)
+        switch kind {
+        case .gulp:
+            scaleX = 1 + 0.10 * bump
+            scaleY = 1 - 0.07 * bump
+            squint = bump
+        case .bigGulp:
+            // Two swallows, the second smaller.
+            let wave = abs(sin(p * .pi * 2)) * (1 - p * 0.5)
+            scaleX = 1 + 0.2 * wave
+            scaleY = 1 - 0.13 * wave
+            squint = wave
+        case .spit:
+            scaleX = 1 - 0.08 * bump
+            scaleY = 1 - 0.08 * bump
+        case .dive:
+            offsetY = 16 * bump
+            scaleX = 1 - 0.05 * bump
+            scaleY = 1 + 0.08 * bump
+        case .surface:
+            offsetY = -14 * bump
+            scaleX = 1 - 0.04 * bump
+            scaleY = 1 + 0.06 * bump
+        case .glance:
+            look = min(1, p * 5) * min(1, (1 - p) * 4)
         }
     }
 }

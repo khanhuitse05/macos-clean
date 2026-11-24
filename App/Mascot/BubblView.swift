@@ -1,10 +1,11 @@
+import AppKit
 import MacosCleanCore
 import SwiftUI
 
-/// Bubbl, the macos-clean mascot: a soap bubble that reacts to scans and cleanups.
-/// Lives in the Storage Manager summary header, never over content.
+/// Bubbl, the macos-clean mascot: a soap bubble that reacts to scans, selections and cleanups.
+/// Floats in a corner of every section (see ``MascotOverlay``).
 ///
-/// One motion clock (`TimelineView`, 30 fps) drives float, wobble, shimmer, blinks and particles
+/// One motion clock (`TimelineView`, 20 fps) drives float, wobble, shimmer, blinks and particles
 /// from the time alone. Mood changes blend over 0.6 s; with Reduce motion on the clock is paused
 /// and each mood is a still pose.
 struct BubblView: View {
@@ -13,6 +14,19 @@ struct BubblView: View {
     var leftoverCount = 0
     var onBlockedTap: () -> Void = {}
     var onLeftoversTap: () -> Void = {}
+    /// Share (0…1) of what's on screen that's ticked; the bubble grows with it.
+    var selectionShare = 0.0
+    /// The latest reaction to play; a new `id` starts it.
+    var reaction: Reaction?
+    /// An app being uninstalled, shown inside the bubble while it's cleaning.
+    var carriedAppPath: String?
+    /// Where the content is, seen from Bubbl (-1…1 each way): glances look there.
+    var lookToward = CGVector(dx: -1, dy: -1)
+
+    struct Reaction: Equatable {
+        let id = UUID()
+        let kind: MascotReaction
+    }
 
     static let radius: CGFloat = 38
     static let stageSize = CGSize(width: 150, height: 124)
@@ -27,6 +41,8 @@ struct BubblView: View {
     @State private var splitAt: Date?
     @State private var pokeAt: Date?
     @State private var taps: [Date] = []
+    @State private var playing: (kind: MascotReaction, at: Date)?
+    @State private var shareBlend: (from: Double, at: Date)?
 
     var body: some View {
         VStack(spacing: 2) {
@@ -37,7 +53,9 @@ struct BubblView: View {
             }
             .frame(width: Self.stageSize.width, height: Self.stageSize.height)
             // Kept outside the clock so they aren't rebuilt every frame.
-            .help(mood == .blocked ? "Full Disk Access is off. Click to see how to allow it." : "")
+            .help(mood == .blocked
+                ? "Full Disk Access is off. Click to see how to allow it."
+                : "Drag Bubbl to another corner. Right-click to hide it.")
             .accessibilityElement(children: .ignore)
             .accessibilityHidden(mood != .blocked)
             .accessibilityLabel("Full Disk Access is off. Show how to allow it.")
@@ -63,6 +81,15 @@ struct BubblView: View {
             guard let id, !reduceMotion else { return }
             pop = (id, Date())
         }
+        .onChange(of: reaction) { _, reaction in
+            guard let reaction, !reduceMotion else { return }
+            playing = (reaction.kind, Date())
+        }
+        .onChange(of: selectionShare) { old, _ in
+            guard !reduceMotion else { return }
+            let now = Date()
+            shareBlend = (displayedShare(target: old, at: now), now)
+        }
     }
 
     // MARK: Stage
@@ -77,14 +104,16 @@ struct BubblView: View {
         let popPhase = BubblPopPhase(elapsed: popElapsed)
         let split = BubblSplitPhase(elapsed: splitAt.map { date.timeIntervalSince($0) })
         let poke = pokeAt.map { pokeAmount(date.timeIntervalSince($0)) } ?? 0
+        let react = BubblReactionPhase(kind: playing?.kind, elapsed: playing.map { date.timeIntervalSince($0.at) })
+        let grow = MascotReaction.selectionScale(displayedShare(target: selectionShare, at: date))
 
         let base = CGPoint(x: size.width / 2 + pose.offsetX, y: size.height / 2)
         let center = CGPoint(
             x: base.x + sin(t * BubblMotion.driftSpeed) * pose.driftAmp,
-            y: base.y + sin(t * BubblMotion.floatSpeed) * pose.floatAmp
+            y: base.y + sin(t * BubblMotion.floatSpeed) * pose.floatAmp + react.offsetY
         )
         let wobble = sin(t * BubblMotion.wobbleSpeed) * pose.wobbleAmp + poke
-        let scale = pose.scale * popPhase.scale * split.mainScale
+        let scale = pose.scale * popPhase.scale * split.mainScale * grow
 
         let labelProgress: Double? = {
             guard let celebration else { return nil }
@@ -125,22 +154,26 @@ struct BubblView: View {
                 }
             }
 
-            bubble(t: t, pose: pose, labelProgress: labelProgress)
+            bubble(t: t, pose: pose, labelProgress: labelProgress, react: react)
                 .scaleEffect(
-                    x: max(0.001, scale * pose.squashX * (1 + wobble)),
-                    y: max(0.001, scale * pose.squashY * (1 - wobble))
+                    x: max(0.001, scale * pose.squashX * react.scaleX * (1 + wobble)),
+                    y: max(0.001, scale * pose.squashY * react.scaleY * (1 - wobble))
                 )
                 .position(center)
         }
         .frame(width: size.width, height: size.height)
     }
 
-    private func bubble(t: Double, pose: BubblPose, labelProgress: Double?) -> some View {
+    private func bubble(t: Double, pose: BubblPose, labelProgress: Double?, react: BubblReactionPhase) -> some View {
         let r = Self.radius
         let happy = labelProgress != nil
         let glintPhase = (t.truncatingRemainder(dividingBy: BubblMotion.glintPeriod)) / BubblMotion.glintPeriod
-        // Eyes follow the scanning drift.
+        // Eyes follow the scanning drift, and glance toward the content after a selection.
         let look = pose.eyeLookX + (pose.driftAmp / 12) * 3 * cos(t * BubblMotion.driftSpeed)
+            + react.look * lookToward.dx * 5
+        let carrying = carriedAppPath != nil && mood == .cleaning && !happy
+        let whoaBytes: Int64? = if case .whoa(let bytes) = mood, !happy, !carrying { bytes } else { nil }
+        let eyesY = happy ? -r * 0.32 : (carrying ? -r * 0.5 : (pose.mouth > 0.5 ? -r * 0.28 : -r * 0.12))
 
         return ZStack {
             BubblBody(
@@ -154,11 +187,34 @@ struct BubblView: View {
             BubblEyes(
                 size: r * 2,
                 open: pose.eyeOpen,
-                blink: reduceMotion ? 0 : BubblMotion.blink(at: t),
+                blink: reduceMotion ? 0 : max(BubblMotion.blink(at: t), react.squint * 0.85),
                 lookX: look,
                 happy: happy
             )
-            .offset(y: happy ? -r * 0.32 : -r * 0.12)
+            .offset(y: eyesY + react.look * lookToward.dy * 3)
+
+            if pose.mouth > 0.05, !happy, !carrying {
+                Ellipse()
+                    .fill(Color.primary.opacity(0.75))
+                    .frame(width: r * 0.2, height: r * 0.26)
+                    .scaleEffect(pose.mouth)
+                    .offset(y: r * 0.04)
+            }
+            if let whoaBytes {
+                Text(whoaBytes.fileSize)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .frame(width: r * 1.3)
+                    .offset(y: r * 0.42)
+            }
+            if carrying, let carriedAppPath {
+                CarriedAppIcon(path: carriedAppPath)
+                    .frame(width: r * 0.95, height: r * 0.95)
+                    .offset(y: r * 0.18 + sin(t * 3) * 2)
+                    .transition(.opacity)
+            }
 
             if let labelProgress, let celebration {
                 FreedLabel(bytes: Int64(Double(celebration.bytes) * labelProgress))
@@ -189,6 +245,13 @@ struct BubblView: View {
     }
 
     // MARK: State
+
+    /// The selection share shown right now, easing toward `target` after a change.
+    private func displayedShare(target: Double, at date: Date) -> Double {
+        guard !reduceMotion, let shareBlend else { return target }
+        let fraction = BubblMotion.easeOut(date.timeIntervalSince(shareBlend.at) / 0.45)
+        return shareBlend.from + (target - shareBlend.from) * fraction
+    }
 
     private func blendedPose(target: BubblPose, at date: Date) -> BubblPose {
         guard !reduceMotion, let blend else { return target }
@@ -396,6 +459,19 @@ struct BubblEyes: View {
     }
 }
 
+/// The app being uninstalled, inside the bubble as it's carried off to the Trash.
+private struct CarriedAppIcon: View {
+    let path: String
+    @State private var icon: NSImage?
+
+    var body: some View {
+        Group {
+            if let icon { Image(nsImage: icon).resizable().interpolation(.high) } else { Color.clear }
+        }
+        .task(id: path) { icon = NSWorkspace.shared.icon(forFile: path) }
+    }
+}
+
 /// "4.2 GB freed", shown inside the reformed bubble.
 private struct FreedLabel: View {
     let bytes: Int64
@@ -450,6 +526,7 @@ private struct GlassPane: View {
         ("Cleaning", .cleaning),
         ("Nothing", .nothingToClean),
         ("Blocked", .blocked),
+        ("Whoa 42 GB", .whoa(42_000_000_000)),
     ]
     return ScrollView {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220))], spacing: 16) {

@@ -54,7 +54,7 @@
     "Downloaded bottles and source archives. Safe to delete (or `brew cleanup`)." : {
 
     },
-    "Files already in the Trash. macos-clean never deletes permanently, so empty it yourself in Finder." : {
+    "Files already in the Trash. Empty it, or pick items to delete for good." : {
 
     },
     "Gradle build cache and downloaded dependencies. Safe to delete." : {

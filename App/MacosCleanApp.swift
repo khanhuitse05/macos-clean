@@ -11,6 +11,7 @@ struct MacosCleanApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            MascotCommands()
         }
 
         Settings {

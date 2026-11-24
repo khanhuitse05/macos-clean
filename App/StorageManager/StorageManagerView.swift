@@ -6,9 +6,6 @@ struct StorageManagerView: View {
     let model: StorageModel
     let trash: TrashCoordinator
     let access: AccessModel
-    /// Removed apps whose leftovers wait in the Uninstaller (mascot M8).
-    var leftoverAppCount = 0
-    var onShowLeftovers: () -> Void = {}
 
     @State private var expanded: Set<String> = []
     @State private var previewURL: URL?
@@ -28,25 +25,14 @@ struct StorageManagerView: View {
 
     private var list: some View {
         List {
-            HStack(alignment: .center, spacing: 16) {
-                StorageSummaryHeader(
-                    foundBytes: model.foundBytes,
-                    selectedBytes: model.selectedBytes,
-                    volume: model.volume,
-                    hasResults: model.hasAnyResult,
-                    isScanning: model.isScanningAll,
-                    liveBytes: { model.liveScannedBytes }
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // Beside the summary, never over it.
-                MascotSlot(
-                    mood: mascotMood,
-                    celebration: trash.celebration,
-                    leftoverAppCount: leftoverAppCount,
-                    onBlockedTap: { access.isShowingWelcome = true },
-                    onShowLeftovers: onShowLeftovers
-                )
-            }
+            StorageSummaryHeader(
+                foundBytes: model.foundBytes,
+                selectedBytes: model.selectedBytes,
+                volume: model.volume,
+                hasResults: model.hasAnyResult,
+                isScanning: model.isScanningAll,
+                liveBytes: { model.liveScannedBytes }
+            )
             .listRowSeparator(.hidden)
 
             if !model.deniedPaths.isEmpty {
@@ -110,16 +96,6 @@ struct StorageManagerView: View {
             }
         }
         .quickLookPreview($previewURL)
-    }
-
-    private var mascotMood: MascotMood {
-        MascotMood.resolve(MascotInputs(
-            isScanning: model.isScanningAll || model.categories.contains { model.phase(of: $0) == .scanning },
-            hasResults: model.hasAnyResult,
-            foundBytes: model.foundBytes,
-            isTrashing: trash.isRunning,
-            isAccessBlocked: !access.hasFullDiskAccess || !model.deniedPaths.isEmpty
-        ))
     }
 
     private var subtitle: String {

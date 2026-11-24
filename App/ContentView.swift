@@ -54,20 +54,20 @@ struct ContentView: View {
             Sidebar(state: state)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 300)
         } detail: {
-            switch state.section ?? .storage {
-            case .storage:
-                StorageManagerView(
-                    model: state.storage, trash: state.trash, access: state.access,
-                    leftoverAppCount: state.uninstaller.removed.count,
-                    onShowLeftovers: { state.section = .uninstaller }
-                )
-            case .largeFiles:
-                LargeFilesView(model: state.largeFiles, trash: state.trash, access: state.access)
-            case .fileBrowser:
-                FileBrowserView(model: state.fileBrowser, trash: state.trash, access: state.access)
-            case .uninstaller:
-                UninstallerView(model: state.uninstaller, trash: state.trash, access: state.access)
+            Group {
+                switch state.section ?? .storage {
+                case .storage:
+                    StorageManagerView(model: state.storage, trash: state.trash, access: state.access)
+                case .largeFiles:
+                    LargeFilesView(model: state.largeFiles, trash: state.trash, access: state.access)
+                case .fileBrowser:
+                    FileBrowserView(model: state.fileBrowser, trash: state.trash, access: state.access)
+                case .uninstaller:
+                    UninstallerView(model: state.uninstaller, trash: state.trash, access: state.access)
+                }
             }
+            // Bubbl floats over every section, in a corner the user can change by dragging.
+            .overlay { MascotOverlay(state: state) }
         }
         .trashFlow(state.trash)
         // Bounce, wiggle and rotate effects everywhere are motion; drop them all at once.
