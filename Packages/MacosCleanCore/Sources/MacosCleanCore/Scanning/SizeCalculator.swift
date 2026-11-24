@@ -30,17 +30,20 @@ public enum SizeCalculator {
 
     /// - Parameter listingDepth: also collect the children of folders less than this many
     ///   levels below `url` (1 = the root's own children, 2 = also its subfolders' children).
-    public static func measure(_ url: URL, listingDepth: Int = 0) -> SizeResult {
+    public static func measure(_ url: URL, listingDepth: Int = 0, progress: ScanProgress? = nil) -> SizeResult {
         let path = url.path
         var info = stat()
         guard lstat(path, &info) == 0 else {
             return AccessCheck.isPermissionErrno(errno) ? SizeResult(bytes: 0, deniedPaths: [path]) : .zero
         }
         guard info.st_mode & S_IFMT == S_IFDIR else {
-            return SizeResult(bytes: Int64(info.st_blocks) * 512, deniedPaths: [])
+            let bytes = Int64(info.st_blocks) * 512
+            progress?.add(bytes: bytes, files: 1)
+            return SizeResult(bytes: bytes, deniedPaths: [])
         }
-        var visitor = SizeVisitor(listingDepth: listingDepth, splitDepth: nil, inodes: InodeSet())
+        var visitor = SizeVisitor(listingDepth: listingDepth, splitDepth: nil, inodes: InodeSet(), progress: progress)
         DirectoryWalker.walk(root: path, visitor: &visitor)
+        visitor.flushProgress()
         return visitor.result
     }
 
@@ -54,19 +57,22 @@ public enum SizeCalculator {
     /// by ``ScanThrottle``) and the sizes are folded back up. A single large folder (a project
     /// tree, `~/Library`) then uses every core instead of one.
     @concurrent
-    public static func measureParallel(_ url: URL, listingDepth: Int = 0) async -> SizeResult {
+    public static func measureParallel(_ url: URL, listingDepth: Int = 0, progress: ScanProgress? = nil) async -> SizeResult {
         let path = url.path
         var info = stat()
         guard lstat(path, &info) == 0 else {
             return AccessCheck.isPermissionErrno(errno) ? SizeResult(bytes: 0, deniedPaths: [path]) : .zero
         }
         guard info.st_mode & S_IFMT == S_IFDIR else {
-            return SizeResult(bytes: Int64(info.st_blocks) * 512, deniedPaths: [])
+            let bytes = Int64(info.st_blocks) * 512
+            progress?.add(bytes: bytes, files: 1)
+            return SizeResult(bytes: bytes, deniedPaths: [])
         }
         let inodes = InodeSet()
         await ScanThrottle.shared.acquire()
-        var top = SizeVisitor(listingDepth: listingDepth, splitDepth: splitDepth, inodes: inodes)
+        var top = SizeVisitor(listingDepth: listingDepth, splitDepth: splitDepth, inodes: inodes, progress: progress)
         DirectoryWalker.walk(root: path, visitor: &top)
+        top.flushProgress()
         await ScanThrottle.shared.release()
         var result = top.result
         let work = top.workItems
@@ -84,8 +90,9 @@ public enum SizeCalculator {
                 next += 1
                 group.addTask {
                     await ScanThrottle.shared.acquire()
-                    var visitor = SizeVisitor(listingDepth: innerDepth, splitDepth: nil, inodes: inodes)
+                    var visitor = SizeVisitor(listingDepth: innerDepth, splitDepth: nil, inodes: inodes, progress: progress)
                     if !Task.isCancelled { DirectoryWalker.walk(root: item, visitor: &visitor) }
+                    visitor.flushProgress()
                     await ScanThrottle.shared.release()
                     return (item, visitor.result)
                 }
@@ -127,7 +134,9 @@ public enum SizeCalculator {
     /// call's fan-out and ``ScanThrottle/shared`` bounds the walks running across the whole
     /// app, so nested scans (categories × items) never flood the disk.
     @concurrent
-    public static func measureAll(_ urls: [URL], width: Int = 6, listingDepth: Int = 0) async -> [SizeResult] {
+    public static func measureAll(
+        _ urls: [URL], width: Int = 6, listingDepth: Int = 0, progress: ScanProgress? = nil
+    ) async -> [SizeResult] {
         guard !urls.isEmpty else { return [] }
         return await withTaskGroup(of: (Int, SizeResult).self) { group in
             var results = Array(repeating: SizeResult.zero, count: urls.count)
@@ -136,7 +145,7 @@ public enum SizeCalculator {
                 let index = next
                 next += 1
                 group.addTask {
-                    let result = Task.isCancelled ? .zero : await measureParallel(urls[index], listingDepth: listingDepth)
+                    let result = Task.isCancelled ? .zero : await measureParallel(urls[index], listingDepth: listingDepth, progress: progress)
                     return (index, result)
                 }
             }
@@ -166,6 +175,9 @@ private struct SizeVisitor: DirectoryWalker.Visitor {
     /// Folders at this depth are left for separate walks and recorded in `workItems`.
     let splitDepth: Int?
     let inodes: InodeSet
+    let progress: ScanProgress?
+    var pendingBytes: Int64 = 0
+    var pendingFiles = 0
     var workItems: [String] = []
     var stack: [Frame] = []
     var total: Int64 = 0
@@ -173,10 +185,19 @@ private struct SizeVisitor: DirectoryWalker.Visitor {
     var listings: [String: [FileEntry]] = [:]
     var visited = 0
 
-    init(listingDepth: Int, splitDepth: Int?, inodes: InodeSet) {
+    init(listingDepth: Int, splitDepth: Int?, inodes: InodeSet, progress: ScanProgress? = nil) {
         self.listingDepth = listingDepth
         self.splitDepth = splitDepth
         self.inodes = inodes
+        self.progress = progress
+    }
+
+    /// Publishes the bytes counted since the last call to the shared live counter.
+    mutating func flushProgress() {
+        guard let progress, pendingFiles > 0 else { return }
+        progress.add(bytes: pendingBytes, files: pendingFiles)
+        pendingBytes = 0
+        pendingFiles = 0
     }
 
     var result: SizeResult {
@@ -191,7 +212,10 @@ private struct SizeVisitor: DirectoryWalker.Visitor {
 
     mutating func visit(_ entry: borrowing DirectoryWalker.Entry) -> DirectoryWalker.Decision {
         visited += 1
-        if visited & 0xFFF == 0, Task.isCancelled { return .stop }
+        if visited & 0x3FF == 0 {
+            if Task.isCancelled { return .stop }
+            flushProgress()
+        }
         let top = stack.count - 1
         if entry.kind == .directory {
             if let splitDepth, entry.depth == splitDepth {
@@ -211,6 +235,8 @@ private struct SizeVisitor: DirectoryWalker.Visitor {
             size = 0
         }
         stack[top].bytes += size
+        pendingBytes += size
+        pendingFiles += 1
         if stack[top].children != nil {
             append(FileEntry(path: entry.path, sizeBytes: size, isDirectory: false, modified: entry.modified), to: top)
         }
@@ -245,6 +271,23 @@ private struct SizeVisitor: DirectoryWalker.Visitor {
         } else {
             stack[index].children!.append(entry)
         }
+    }
+}
+
+/// A live counter of what a scan has measured so far. Walks add to it in batches from any
+/// thread; a UI reads it a few times a second to show running totals.
+public final class ScanProgress: Sendable {
+    private let byteCount = Atomic<Int64>(0)
+    private let fileCount = Atomic<Int>(0)
+
+    public init() {}
+
+    public var bytes: Int64 { byteCount.load(ordering: .relaxed) }
+    public var files: Int { fileCount.load(ordering: .relaxed) }
+
+    func add(bytes: Int64, files: Int) {
+        byteCount.add(bytes, ordering: .relaxed)
+        fileCount.add(files, ordering: .relaxed)
     }
 }
 

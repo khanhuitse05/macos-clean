@@ -10,6 +10,7 @@ struct FileBrowserView: View {
 
     @State private var previewURL: URL?
     @State private var isChoosingFolder = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var focusedColumn: Int?
 
     var body: some View {
@@ -61,7 +62,7 @@ struct FileBrowserView: View {
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             .onChange(of: model.columns) { _, columns in
                 guard let last = columns.last else { return }
-                withAnimation(.snappy) { proxy.scrollTo(last, anchor: .trailing) }
+                withAnimation(reduceMotion ? nil : .snappy) { proxy.scrollTo(last, anchor: .trailing) }
             }
         }
     }

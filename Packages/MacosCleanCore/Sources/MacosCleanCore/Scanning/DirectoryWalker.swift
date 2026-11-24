@@ -75,6 +75,18 @@ struct DirectoryWalker {
         "macfuse", "osxfuse", "fuse-t", "fusefs",
     ]
 
+    /// Folders the walker never opens because macOS guards them with a privacy prompt that has
+    /// nothing to do with cleaning: `open()` blocks until the prompt is answered, so a scan
+    /// stalls (forever, if nobody is at the Mac) and the user sees an odd request. Found in
+    /// testing: the Apple Music cache asks for "your music, video activity, and media library".
+    /// Skipped silently, as if empty: they aren't junk the app can explain anyway.
+    static let privacyGuardedPaths: Set<String> = {
+        let home = NSHomeDirectory()
+        return [
+            home + "/Library/Caches/com.apple.Music",
+        ]
+    }()
+
     /// `SF_DATALESS`: a cloud placeholder (iCloud Drive, File Provider). Its contents aren't on
     /// disk, and listing them can make the provider download the listing.
     static let datalessFlag: UInt32 = 0x4000_0000
@@ -103,6 +115,8 @@ struct DirectoryWalker {
     private mutating func walkDirectory<V: Visitor>(
         _ path: String, depth: Int, parentDevice: dev_t?, visitor: inout V
     ) -> Bool {
+        // Opening these blocks until the user answers a macOS privacy prompt.
+        if Self.privacyGuardedPaths.contains(path) { return true }
         let fd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         if fd < 0 {
             let code = errno

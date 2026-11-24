@@ -274,3 +274,17 @@ struct LargeFileScannerRootTests {
         #expect(names == ["fine.bin"])
     }
 }
+
+@Suite("DirectoryWalker privacy-guarded folders")
+struct PrivacyGuardedTests {
+    // Only checks the list: actually walking the real folder would raise the macOS prompt.
+    @Test func appleMusicCacheIsNeverOpened() {
+        #expect(DirectoryWalker.privacyGuardedPaths.contains(NSHomeDirectory() + "/Library/Caches/com.apple.Music"))
+    }
+
+    @Test func ordinaryFoldersAreStillWalked() throws {
+        let tree = try TempTree()
+        _ = try tree.file("a/b.bin", bytes: 4096)
+        #expect(SizeCalculator.measure(tree.url("a")).bytes > 0)
+    }
+}

@@ -12,5 +12,9 @@ struct MacosCleanApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
         }
+
+        Settings {
+            SettingsView()
+        }
     }
 }

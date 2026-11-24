@@ -24,10 +24,22 @@ final class TrashCoordinator {
         case finished(CleanSummary)
     }
 
+    /// A clean that fully succeeded, shown as a short toast instead of a results sheet.
+    struct Celebration: Identifiable, Equatable {
+        let id = UUID()
+        let bytes: Int64
+        let count: Int
+    }
+
     /// Drives the confirmation dialog.
     var pending: Request?
     private(set) var phase: Phase = .idle
     var isShowingProgress = false
+    private(set) var celebration: Celebration?
+
+    /// Quick cleans finish before this, so they never flash a progress sheet.
+    private static let sheetDelay: Duration = .milliseconds(450)
+    private static let celebrationDuration: Duration = .seconds(4)
 
     private let cleaner: Cleaner
 
@@ -51,6 +63,11 @@ final class TrashCoordinator {
         Task { await run(request) }
     }
 
+
+    func dismissCelebration() {
+        Motion.animate(.smooth) { celebration = nil }
+    }
+
     func dismissProgress() {
         guard !isRunning else { return }
         isShowingProgress = false
@@ -60,7 +77,12 @@ final class TrashCoordinator {
     private func run(_ request: Request) async {
         if let prepare = request.prepare, await prepare() == false { return }
         phase = .running(nil)
-        isShowingProgress = true
+        celebration = nil
+        let sheetTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.sheetDelay)
+            guard !Task.isCancelled, let self, isRunning else { return }
+            isShowingProgress = true
+        }
         let summary: CleanSummary
         do {
             var last = CleanSummary(outcomes: [])
@@ -76,8 +98,25 @@ final class TrashCoordinator {
                 DeleteOutcome(path: $0, success: false, error: error.localizedDescription)
             })
         }
-        phase = .finished(summary)
-        request.onFinish(summary)
+        sheetTask.cancel()
+        // Rows leave the lists with an animation in every feature.
+        Motion.animate { request.onFinish(summary) }
+        if summary.failed == 0, summary.succeeded > 0 {
+            // Everything worked: close the sheet (if it opened) and celebrate instead.
+            phase = .idle
+            isShowingProgress = false
+            let shown = Celebration(bytes: summary.bytesFreed, count: summary.succeeded)
+            Motion.animate(.spring(duration: 0.5, bounce: 0.3)) { celebration = shown }
+            Task { [weak self] in
+                try? await Task.sleep(for: Self.celebrationDuration)
+                guard let self, celebration?.id == shown.id else { return }
+                dismissCelebration()
+            }
+        } else {
+            // Failures need reading: show the results sheet.
+            phase = .finished(summary)
+            isShowingProgress = true
+        }
     }
 }
 
@@ -138,6 +177,105 @@ struct TrashFlowModifier: ViewModifier {
                 CleanProgressSheet(phase: coordinator.phase) { coordinator.dismissProgress() }
                     .interactiveDismissDisabled(coordinator.isRunning)
             }
+            .overlay(alignment: .top) {
+                if let celebration = coordinator.celebration {
+                    CelebrationToast(celebration: celebration) { coordinator.dismissCelebration() }
+                        .padding(.top, 12)
+                        .motionTransition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
+    }
+}
+
+/// "4.2 GB cleaned" — counts up, the trash icon bounces and a few sparkles drift off.
+struct CelebrationToast: View {
+    let celebration: TrashCoordinator.Celebration
+    let onDismiss: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shownBytes: Double = 0
+    @State private var bounce = 0
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "trash.fill")
+                .font(.title2)
+                .foregroundStyle(.tint)
+                .symbolEffect(.bounce, value: bounce)
+                .overlay(alignment: .topTrailing) {
+                    if !reduceMotion { SparkleBurst(trigger: bounce).offset(x: 10, y: -10) }
+                }
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    CountingBytes(bytes: shownBytes)
+                        .font(.title3.weight(.semibold))
+                    Text("cleaned").font(.title3.weight(.semibold))
+                }
+                Text("\(celebration.count.formatted()) \(celebration.count == 1 ? "item" : "items") moved to the Trash. Empty it in Finder to get the space back.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Button("Dismiss", systemImage: "xmark", action: onDismiss)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 440)
+        .glassEffect(.regular, in: .capsule)
+        .accessibilityElement(children: .combine)
+        .onAppear {
+            if reduceMotion {
+                shownBytes = Double(celebration.bytes)
+            } else {
+                withAnimation(.easeOut(duration: 1.1)) { shownBytes = Double(celebration.bytes) }
+                bounce += 1
+            }
+        }
+    }
+}
+
+/// A handful of sparkles that fly outward and fade each time `trigger` changes.
+private struct SparkleBurst: View {
+    let trigger: Int
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<5, id: \.self) { index in
+                let angle = Self.angle(index)
+                Image(systemName: "sparkle")
+                    .font(.system(size: index.isMultiple(of: 2) ? 9 : 6, weight: .bold))
+                    .foregroundStyle(.yellow)
+                    .keyframeAnimator(initialValue: Spark(), trigger: trigger) { content, spark in
+                        content
+                            .offset(x: spark.distance * cos(angle), y: spark.distance * sin(angle))
+                            .scaleEffect(spark.scale)
+                            .opacity(spark.opacity)
+                    } keyframes: { _ in
+                        KeyframeTrack(\.distance) { CubicKeyframe(22, duration: 0.7) }
+                        KeyframeTrack(\.scale) {
+                            SpringKeyframe(1.2, duration: 0.25)
+                            CubicKeyframe(0.4, duration: 0.45)
+                        }
+                        KeyframeTrack(\.opacity) {
+                            LinearKeyframe(1, duration: 0.1)
+                            LinearKeyframe(1, duration: 0.3)
+                            LinearKeyframe(0, duration: 0.3)
+                        }
+                    }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private static func angle(_ index: Int) -> Double { -Double.pi / 2 + Double(index - 2) * 0.55 }
+
+    private struct Spark {
+        var distance: Double = 0
+        var scale: Double = 0.2
+        var opacity: Double = 0
     }
 }
 

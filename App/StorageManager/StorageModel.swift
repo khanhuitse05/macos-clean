@@ -39,6 +39,12 @@ final class StorageModel {
     private(set) var selectedBytesByCategory: [String: Int64] = [:]
     private(set) var foundBytes: Int64 = 0
     private(set) var deniedPaths: [String] = []
+    /// Capacity of the disk the home folder is on, for the header bar.
+    private(set) var volume: VolumeUsage?
+
+    /// Running totals of scans in flight, keyed by category. Not observed: views sample it
+    /// a few times a second with a `TimelineView` while a category shows `.scanning`.
+    @ObservationIgnored private var liveProgress: [String: ScanProgress] = [:]
 
     @ObservationIgnored private var sizes: [String: Int64] = [:]
     @ObservationIgnored private var categoryOfPath: [String: String] = [:]
@@ -54,6 +60,22 @@ final class StorageModel {
     @ObservationIgnored private var watcher: FileSystemWatcher?
     @ObservationIgnored private var pendingChanges: [FileSystemChange] = []
     @ObservationIgnored private var changeTask: Task<Void, Never>?
+    /// Earliest time each live-refreshed entry may be re-measured again.
+    @ObservationIgnored private var nextRemeasure: [String: ContinuousClock.Instant] = [:]
+    @ObservationIgnored private var cooledEntries: Set<String> = []
+    @ObservationIgnored private var cooldownTask: Task<Void, Never>?
+    /// The next live-refresh pass starts no earlier than this.
+    @ObservationIgnored private var passQuietUntil: ContinuousClock.Instant?
+
+    /// After a live re-measure, the same entries wait this many times the CPU time it used.
+    /// A folder that changes nonstop (a browser's 4 GB cache) then costs at most ~5% of one
+    /// core on average, while small folders still update within seconds.
+    private static let remeasureCostFactor = 20.0
+
+    /// CPU time used by the whole process so far (all threads, user + system).
+    private static func processCPUTime() -> Duration {
+        .nanoseconds(Int64(clamping: clock_gettime_nsec_np(CLOCK_PROCESS_CPUTIME_ID)))
+    }
 
     // MARK: Queries
 
@@ -92,6 +114,19 @@ final class StorageModel {
 
     func selectedBytes(in category: CleanupCategory) -> Int64 { selectedBytesByCategory[category.id] ?? 0 }
 
+    func liveProgress(of category: CleanupCategory) -> ScanProgress? { liveProgress[category.id] }
+
+    /// Bytes measured so far by every scan in flight.
+    var liveScannedBytes: Int64 { liveProgress.values.reduce(0) { $0 + $1.bytes } }
+
+    /// Reads the home volume's capacity off the main thread.
+    func refreshVolume() {
+        Task {
+            let usage = await VolumeUsage.read()
+            if usage != volume { Motion.animate(.smooth(duration: 0.6)) { volume = usage } }
+        }
+    }
+
     // MARK: Scanning
 
     func scanAll() async {
@@ -112,10 +147,13 @@ final class StorageModel {
 
     func scan(_ category: CleanupCategory) async {
         if phase(of: category) == .scanning { return }
-        phases[category.id] = .scanning
+        Motion.animate { phases[category.id] = .scanning }
         refreshing.remove(category.id)
-        let result = await scanner.scan(category)
-        apply(result, for: category)
+        let progress = ScanProgress()
+        liveProgress[category.id] = progress
+        let result = await scanner.scan(category, progress: progress)
+        liveProgress[category.id] = nil
+        Motion.animate { apply(result, for: category) }
     }
 
     /// Shows the results saved by the last run at once, then rescans those categories in the
@@ -123,6 +161,7 @@ final class StorageModel {
     func restoreAndRefresh() async {
         guard !didRestore else { return }
         didRestore = true
+        refreshVolume()
         let saved = await store.load()
         var restored: [CleanupCategory] = []
         for category in categories {
@@ -148,7 +187,7 @@ final class StorageModel {
         guard refreshing.contains(category.id) else { return }
         let result = await scanner.scan(category)
         guard refreshing.remove(category.id) != nil, case .scanned = phase(of: category) else { return }
-        apply(result, for: category)
+        Motion.animate { apply(result, for: category) }
     }
 
     /// Called when a folder row opens: shows prefetched children at once when the scan
@@ -226,6 +265,7 @@ final class StorageModel {
         recomputeSelectionSummary()
         if persist { scheduleSave() }
         updateWatcher()
+        refreshVolume()
     }
 
     private func addPrefetched(_ listings: [String: [FileEntry]], owner: String) {
@@ -416,6 +456,7 @@ final class StorageModel {
         recomputeSelectionSummary()
         scheduleSave()
         updateWatcher()
+        refreshVolume()
     }
 
     // MARK: Saved results
@@ -464,9 +505,11 @@ final class StorageModel {
     private func noteChanges(_ changes: [FileSystemChange]) {
         pendingChanges += changes
         guard changeTask == nil else { return }
+        // Let bursts (a browser writing its cache) settle into one refresh, and keep all live
+        // refreshes together within the same CPU budget as a single entry.
+        let due = max(ContinuousClock.now + .seconds(3), passQuietUntil ?? .now)
         changeTask = Task { [weak self] in
-            // Let bursts (a browser writing its cache) settle into one refresh.
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(until: due)
             await self?.applyPendingChanges()
         }
     }
@@ -478,14 +521,39 @@ final class StorageModel {
             // The running full scan will produce fresh numbers; check again afterwards.
             pendingChanges = changes
         } else {
+            let now = ContinuousClock.now
+            let cpuBefore = Self.processCPUTime()
+            defer { passQuietUntil = .now + (Self.processCPUTime() - cpuBefore) * Self.remeasureCostFactor }
             for category in categories where !refreshing.contains(category.id) {
                 guard case .scanned(let result) = phase(of: category) else { continue }
-                let plan = refreshPlan(for: category, result: result, changes: changes)
+                var plan = refreshPlan(for: category, result: result, changes: changes)
+                let cooling = plan.entries.filter { (nextRemeasure[$0] ?? now) > now }
+                if !cooling.isEmpty {
+                    plan.entries.subtract(cooling)
+                    deferUntilCooled(cooling)
+                }
                 if !plan.isEmpty { await refresh(category, plan: plan) }
             }
         }
         changeTask = nil
         if !pendingChanges.isEmpty { noteChanges([]) }
+    }
+
+    /// Re-checks `entries` once their cool-down (see ``remeasureCostFactor``) is over.
+    private func deferUntilCooled(_ entries: Set<String>) {
+        cooledEntries.formUnion(entries)
+        guard cooldownTask == nil else { return }
+        let now = ContinuousClock.now
+        let due = cooledEntries.compactMap { nextRemeasure[$0] }.min() ?? now
+        cooldownTask = Task { [weak self] in
+            try? await Task.sleep(until: due)
+            guard let self else { return }
+            let entries = cooledEntries
+            cooledEntries = []
+            cooldownTask = nil
+            // Entries still cooling are deferred again by applyPendingChanges.
+            noteChanges(entries.map { FileSystemChange(path: $0, mustScanSubfolders: false) })
+        }
     }
 
     /// Drops every registration at or under `paths`: sizes, owners, listings and ticks.
@@ -563,7 +631,12 @@ final class StorageModel {
             }
         }
         let targets = remeasure.subtracting(vanished).sorted()
+        // Cost is CPU time, not wall time: the walk runs on every core at once.
+        let cpuBefore = Self.processCPUTime()
         let measured = await scanner.measure(targets.map { URL(fileURLWithPath: $0) })
+        let cost = Self.processCPUTime() - cpuBefore
+        let quietUntil = ContinuousClock.now + cost * Self.remeasureCostFactor
+        for target in targets { nextRemeasure[target] = quietUntil }
 
         // Merge into the current result: it may have changed (trash) while we measured.
         guard case .scanned(let current) = phase(of: category), current.scannedAt == before.scannedAt else { return }
@@ -610,14 +683,33 @@ final class StorageModel {
         if wasFullySelected, category.safety.selectedByDefault {
             selection.formUnion(added.map(\.path))
         }
-        phases[category.id] = .scanned(CategoryScanResult(
-            categoryID: category.id, entries: entries.sortedBySizeDescending(),
-            deniedPaths: current.deniedPaths, scannedAt: current.scannedAt
-        ))
+        Motion.animate {
+            phases[category.id] = .scanned(CategoryScanResult(
+                categoryID: category.id, entries: entries.sortedBySizeDescending(),
+                deniedPaths: current.deniedPaths, scannedAt: current.scannedAt
+            ))
+        }
         recomputeTotals()
         recomputeSelectionSummary()
         scheduleSave()
         updateWatcher()
+    }
+}
+
+/// Capacity of the volume that holds the home folder.
+struct VolumeUsage: Equatable, Sendable {
+    let total: Int64
+    let available: Int64
+    var used: Int64 { max(0, total - available) }
+
+    @concurrent
+    static func read() async -> VolumeUsage? {
+        let keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey]
+        guard let values = try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: keys),
+              let total = values.volumeTotalCapacity, total > 0,
+              let available = values.volumeAvailableCapacityForImportantUsage
+        else { return nil }
+        return VolumeUsage(total: Int64(total), available: min(available, Int64(total)))
     }
 }
 

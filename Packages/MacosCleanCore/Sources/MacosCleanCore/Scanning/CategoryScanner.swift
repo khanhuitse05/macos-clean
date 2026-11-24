@@ -75,18 +75,19 @@ public struct CategoryScanner: Sendable {
         self.database = database
     }
 
+    /// - Parameter progress: receives running totals while the scan measures.
     @concurrent
-    public func scan(_ category: CleanupCategory) async -> CategoryScanResult {
+    public func scan(_ category: CleanupCategory, progress: ScanProgress? = nil) async -> CategoryScanResult {
         switch category.source {
         case .devProjects:
-            let found = await DevProjectScanner(root: URL(fileURLWithPath: expander.home)).scanDetailed()
+            let found = await DevProjectScanner(root: URL(fileURLWithPath: expander.home)).scanDetailed(progress: progress)
             return CategoryScanResult(
                 categoryID: category.id, entries: found.entries, deniedPaths: [], prefetched: found.listings
             )
 
         case .appCaches:
             let urls = database.safeCacheEntries(expander: expander)
-            let measured = await measure(urls)
+            let measured = await measure(urls, progress: progress)
             return CategoryScanResult(
                 categoryID: category.id,
                 entries: measured.entries.filter { $0.sizeBytes > 0 }.sortedBySizeDescending(),
@@ -101,7 +102,7 @@ public struct CategoryScanner: Sendable {
             for raw in rawPaths {
                 guard !Task.isCancelled else { break }
                 let root = expander.expand(raw)
-                let listing = await list(root)
+                let listing = await list(root, progress: progress)
                 entries += listing.entries
                 denied += listing.deniedPaths
                 prefetched.merge(listing.prefetched) { $1 }
@@ -113,22 +114,24 @@ public struct CategoryScanner: Sendable {
     /// The children of a folder with their sizes, largest first. A file root returns itself.
     /// Files take their size from the listing; only subfolders are walked.
     @concurrent
-    public func list(_ root: URL) async -> FolderListing {
+    public func list(_ root: URL, progress: ScanProgress? = nil) async -> FolderListing {
         var info = stat()
         guard lstat(root.path, &info) == 0 else {
             // Missing is normal (tool not installed); "not permitted" means macOS blocked us.
             return FolderListing(entries: [], deniedPaths: AccessCheck.isPermissionErrno(errno) ? [root.path] : [])
         }
         guard info.st_mode & S_IFMT == S_IFDIR else {
-            return await measure([root])
+            return await measure([root], progress: progress)
         }
         let listing = DirectoryWalker.children(of: root.path)
         if let error = listing.error {
             return FolderListing(entries: [], deniedPaths: AccessCheck.isPermissionErrno(error) ? [root.path] : [])
         }
         let folders = listing.children.filter { $0.kind == .directory }
+        let looseFiles = listing.children.filter { $0.kind != .directory }
+        progress?.add(bytes: looseFiles.reduce(0) { $0 + $1.allocatedSize }, files: looseFiles.count)
         let sizes = await SizeCalculator.measureAll(
-            folders.map { URL(fileURLWithPath: $0.path) }, listingDepth: Self.prefetchDepth
+            folders.map { URL(fileURLWithPath: $0.path) }, listingDepth: Self.prefetchDepth, progress: progress
         )
         var denied: [String] = []
         var prefetched: [String: [FileEntry]] = [:]
@@ -177,8 +180,8 @@ public struct CategoryScanner: Sendable {
     /// Measures arbitrary items (files or folders), keeping their order. A missing item comes
     /// back with size 0 and `modified == nil`.
     @concurrent
-    public func measure(_ urls: [URL]) async -> FolderListing {
-        let sizes = await SizeCalculator.measureAll(urls, listingDepth: Self.prefetchDepth)
+    public func measure(_ urls: [URL], progress: ScanProgress? = nil) async -> FolderListing {
+        let sizes = await SizeCalculator.measureAll(urls, listingDepth: Self.prefetchDepth, progress: progress)
         var denied: [String] = []
         var prefetched: [String: [FileEntry]] = [:]
         let entries = zip(urls, sizes).map { url, size in

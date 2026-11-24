@@ -42,13 +42,13 @@ public struct DevProjectScanner: Sendable {
 
     /// Flagged folders plus the listings collected while measuring them.
     @concurrent
-    func scanDetailed() async -> (entries: [FileEntry], listings: [String: [FileEntry]]) {
+    func scanDetailed(progress: ScanProgress? = nil) async -> (entries: [FileEntry], listings: [String: [FileEntry]]) {
         var flagged: [String] = []
         var rootPath = root.path
         while rootPath.count > 1, rootPath.hasSuffix("/") { rootPath.removeLast() }
         collect(in: rootPath, depth: 0, inheritedIgnores: [], into: &flagged)
         let sizes = await SizeCalculator.measureAll(
-            flagged.map { URL(fileURLWithPath: $0) }, listingDepth: CategoryScanner.prefetchDepth
+            flagged.map { URL(fileURLWithPath: $0) }, listingDepth: CategoryScanner.prefetchDepth, progress: progress
         )
         var listings: [String: [FileEntry]] = [:]
         for size in sizes { listings.merge(size.listings) { $1 } }

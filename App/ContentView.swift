@@ -40,6 +40,7 @@ final class AppState {
 
 struct ContentView: View {
     @State private var state = AppState()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         @Bindable var access = state.access
@@ -49,7 +50,11 @@ struct ContentView: View {
         } detail: {
             switch state.section ?? .storage {
             case .storage:
-                StorageManagerView(model: state.storage, trash: state.trash, access: state.access)
+                StorageManagerView(
+                    model: state.storage, trash: state.trash, access: state.access,
+                    leftoverAppCount: state.uninstaller.removed.count,
+                    onShowLeftovers: { state.section = .uninstaller }
+                )
             case .largeFiles:
                 LargeFilesView(model: state.largeFiles, trash: state.trash, access: state.access)
             case .fileBrowser:
@@ -59,6 +64,8 @@ struct ContentView: View {
             }
         }
         .trashFlow(state.trash)
+        // Bounce, wiggle and rotate effects everywhere are motion; drop them all at once.
+        .symbolEffectsRemoved(reduceMotion)
         .sheet(isPresented: $access.isShowingWelcome) {
             FullDiskAccessWelcome(access: state.access)
         }
@@ -93,6 +100,7 @@ private struct Sidebar: View {
                     state.access.isShowingWelcome = true
                 } label: {
                     Label("Full Disk Access is off", systemImage: "lock.trianglebadge.exclamationmark")
+                        .symbolEffect(.wiggle, options: .repeat(.periodic(delay: 10)))
                         .font(.callout)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

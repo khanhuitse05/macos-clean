@@ -102,6 +102,16 @@ struct PrefetchTests {
             + SizeCalculator.measure(tree.url("r/a2")).bytes + 3 * 4096)
     }
 
+    @Test func progressCountsWhatTheScanMeasured() async throws {
+        let tree = try TempTree()
+        for index in 0..<30 { try tree.file("Caches/app\(index % 3)/sub/f\(index).bin", bytes: 8_192) }
+        try tree.file("Caches/loose.bin", bytes: 4_096)
+        let progress = ScanProgress()
+        let listing = await CategoryScanner().list(tree.url("Caches"), progress: progress)
+        #expect(progress.files == 31)
+        #expect(progress.bytes == listing.entries.totalBytes)
+    }
+
     @Test func listPrefetchesChildFolders() async throws {
         let tree = try TempTree()
         try tree.file("Caches/app/data.bin", bytes: 100_000)
