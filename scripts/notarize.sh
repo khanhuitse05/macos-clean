@@ -17,7 +17,7 @@ AUTH_ARGS=()
 if [[ -n "${ASC_KEY_PATH:-}" && -n "${ASC_KEY_ID:-}" && -n "${ASC_ISSUER_ID:-}" ]]; then
   AUTH_ARGS=(--key "$ASC_KEY_PATH" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID")
 elif [[ -n "${APPLE_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
-  AUTH_ARGS=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "${APPLE_TEAM_ID:-369462BHJ6}")
+  AUTH_ARGS=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "${APPLE_TEAM_ID:-N8L3QK9894}")
 else
   PROFILE="${NOTARY_PROFILE:-macos-clean-notary}"
   AUTH_ARGS=(--keychain-profile "$PROFILE")

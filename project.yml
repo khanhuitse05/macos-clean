@@ -59,7 +59,7 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Manual
-        DEVELOPMENT_TEAM: 369462BHJ6
+        DEVELOPMENT_TEAM: N8L3QK9894
       configs:
         # Ad-hoc locally. Note: Full Disk Access is tied to the code signature,
         # so an ad-hoc build may need FDA re-granted after each rebuild.

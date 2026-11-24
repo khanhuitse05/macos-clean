@@ -12,7 +12,7 @@ APP_PATH = File.join(EXPORT_DIR, "macos-clean.app")
 DMG_PATH = File.join(RELEASE_DIR, "macos-clean.dmg")
 SHA_PATH = "#{DMG_PATH}.sha256"
 
-DEFAULT_SIGNING_IDENTITY = "Developer ID Application: GOLDEN OWL CONSULTING COMPANY LIMITED (369462BHJ6)"
+DEFAULT_SIGNING_IDENTITY = "Developer ID Application: To Ngoc Khanh (N8L3QK9894)"
 DEFAULT_GITHUB_REPO = "khanhuitse05/macos-clean-release"
 
 def read_project_setting(key)

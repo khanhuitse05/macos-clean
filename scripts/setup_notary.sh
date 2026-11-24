@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROFILE="${1:-macos-clean-notary}"
-TEAM_ID="${APPLE_TEAM_ID:-369462BHJ6}"
+TEAM_ID="${APPLE_TEAM_ID:-N8L3QK9894}"
 
 echo "Setting up Apple Notarization keychain profile: $PROFILE (Team: $TEAM_ID)"
 echo ""

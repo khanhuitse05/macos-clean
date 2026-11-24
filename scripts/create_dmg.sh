@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_PATH="${1:?Usage: create_dmg.sh <path/to/macos-clean.app> <output.dmg> [signing_identity]}"
 DMG_PATH="${2:?Usage: create_dmg.sh <path/to/macos-clean.app> <output.dmg> [signing_identity]}"
-SIGNING_IDENTITY="${3:-Developer ID Application: GOLDEN OWL CONSULTING COMPANY LIMITED (369462BHJ6)}"
+SIGNING_IDENTITY="${3:-Developer ID Application: To Ngoc Khanh (N8L3QK9894)}"
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "Error: App bundle not found at $APP_PATH" >&2
