@@ -185,6 +185,10 @@ platform :mac do
         sh("git", "commit", "-m", commit_message)
       end
       sh("git", "push", "-u", "origin", "main") unless options[:skip_push]
+      unless options[:skip_push]
+        subtree_sha = Actions.sh("git subtree split --prefix=web HEAD", log: false).strip
+        sh("git", "push", "origin", "#{subtree_sha}:refs/heads/gh-pages", "--force")
+      end
     end
 
     owner, repo_name = github_repo.split("/", 2)

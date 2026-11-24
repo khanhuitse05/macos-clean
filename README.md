@@ -69,7 +69,7 @@ Using `xcrun` ensures SwiftPM uses the active Xcode SDK and toolchain.
 macos-clean/
 ├── App/                        # SwiftUI macOS application & mascot UI
 ├── Packages/MacosCleanCore/    # Swift 6 core scanning, cleaning & app-uninstaller library + tests
-├── web/                        # Landing page & interactive web demo (deployed via GitHub Pages)
+├── web/                        # Landing page & interactive web demo (published to gh-pages)
 ├── fastlane/                   # Fastlane build, notarization & GitHub release automation
 ├── scripts/                    # DMG packaging & Apple notarytool helper scripts
 ├── Design/                     # Source app icon artwork
