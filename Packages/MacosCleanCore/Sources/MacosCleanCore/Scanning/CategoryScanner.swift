@@ -75,7 +75,7 @@ public struct FolderListing: Sendable, Equatable {
     }
 }
 
-/// Scans Storage Manager categories. Port of `scan_category` / `scan_path` in the reference.
+/// Scans Storage Manager categories.
 public struct CategoryScanner: Sendable {
     /// How many levels below each measured item get their listings prefetched. 2 means a
     /// folder and its subfolders can be expanded instantly.

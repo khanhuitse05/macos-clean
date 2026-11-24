@@ -53,7 +53,7 @@ Notarize macOS Clean.app, package signed macos-clean.dmg, notarize & staple DMG
 [bundle exec] fastlane mac publish_release
 ```
 
-Copy DMG & checksum to macos-clean-release, update landing page version, commit, and push
+Update web/index.html version, commit, and push so GitHub Pages deploys
 
 ### mac github_release
 
@@ -69,7 +69,7 @@ Upload macos-clean.dmg to GitHub Releases via gh CLI
 [bundle exec] fastlane mac release
 ```
 
-Full release pipeline: test -> Developer ID build -> notarize & DMG -> publish to release repo -> GitHub Release
+Full release pipeline: test -> Developer ID build -> notarize & DMG -> update web & push -> GitHub Release
 
 ----
 

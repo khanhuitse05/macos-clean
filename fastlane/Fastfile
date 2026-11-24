@@ -11,9 +11,10 @@ EXPORT_DIR = File.join(RELEASE_DIR, "export")
 APP_PATH = File.join(EXPORT_DIR, "macOS Clean.app")
 DMG_PATH = File.join(RELEASE_DIR, "macos-clean.dmg")
 SHA_PATH = "#{DMG_PATH}.sha256"
+WEB_INDEX_HTML = File.join(ROOT_DIR, "web", "index.html")
 
 DEFAULT_SIGNING_IDENTITY = "Developer ID Application: To Ngoc Khanh (N8L3QK9894)"
-DEFAULT_GITHUB_REPO = "khanhuitse05/macos-clean-release"
+DEFAULT_GITHUB_REPO = "khanhuitse05/macos-clean"
 
 def read_project_setting(key)
   content = File.read(PROJECT_YML)
@@ -33,26 +34,12 @@ def signing_identity
   ENV.fetch("SIGNING_IDENTITY", DEFAULT_SIGNING_IDENTITY)
 end
 
-def release_repo_dir
-  env_dir = ENV["RELEASE_REPO_DIR"]
-  return File.expand_path(env_dir, ROOT_DIR) if env_dir && !env_dir.strip.empty?
-
-  candidates = [
-    File.expand_path("../maos-clean-release", ROOT_DIR),
-    File.expand_path("../macos-clean-release", ROOT_DIR)
-  ]
-  candidates.find { |path| Dir.exist?(path) } || candidates.first
-end
-
 def github_repo
   return ENV["GITHUB_REPO"] if ENV["GITHUB_REPO"] && !ENV["GITHUB_REPO"].strip.empty?
 
-  repo_dir = release_repo_dir
-  if Dir.exist?(repo_dir)
-    remote_url = Dir.chdir(repo_dir) { `git remote get-url origin 2>/dev/null`.strip }
-    if remote_url =~ %r{github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$}
-      return Regexp.last_match(1)
-    end
+  remote_url = Dir.chdir(ROOT_DIR) { `git remote get-url origin 2>/dev/null`.strip }
+  if remote_url =~ %r{github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$}
+    return Regexp.last_match(1)
   end
 
   DEFAULT_GITHUB_REPO
@@ -175,33 +162,25 @@ platform :mac do
     end
   end
 
-  desc "Copy DMG & checksum to macos-clean-release, update landing page version, commit, and push"
+  desc "Update web/index.html version, commit, and push so GitHub Pages deploys"
   lane :publish_release do |options|
     UI.user_error!("Missing #{DMG_PATH}. Run `fastlane package_dmg` first.") unless File.exist?(DMG_PATH)
 
-    target_dir = release_repo_dir
-    UI.user_error!("Release repository directory not found at #{target_dir}") unless Dir.exist?(target_dir)
-
-    target_dmg = File.join(target_dir, File.basename(DMG_PATH))
-    target_sha = File.join(target_dir, File.basename(SHA_PATH))
-    FileUtils.cp(DMG_PATH, target_dmg)
-    FileUtils.cp(SHA_PATH, target_sha) if File.exist?(SHA_PATH)
-
     version = options[:version]&.to_s || read_project_setting("MARKETING_VERSION")
-    index_html = File.join(target_dir, "index.html")
-    if File.exist?(index_html)
-      html = File.read(index_html)
+    if File.exist?(WEB_INDEX_HTML)
+      html = File.read(WEB_INDEX_HTML)
       updated_html = html
         .gsub(%r{(<span class="version-pill">)v[^<]+(</span>)}, "\\1v#{version}\\2")
         .gsub(/v\d+(?:\.\d+)*(\s*·\s*Universal)/, "v#{version}\\1")
-      File.write(index_html, updated_html) if updated_html != html
+      File.write(WEB_INDEX_HTML, updated_html) if updated_html != html
     end
 
     commit_message = options[:commit_message]&.to_s || "Release macOS Clean v#{version}"
-    Dir.chdir(target_dir) do
-      sh("git", "add", "-A")
+    Dir.chdir(ROOT_DIR) do
+      paths_to_stage = ["web/index.html", "project.yml"].select { |p| File.exist?(p) }
+      sh("git", "add", *paths_to_stage) unless paths_to_stage.empty?
       if system("git diff --cached --quiet")
-        UI.message("No changes to commit in #{target_dir}")
+        UI.message("No landing-page or version changes to commit")
       else
         sh("git", "commit", "-m", commit_message)
       end
@@ -209,19 +188,18 @@ platform :mac do
     end
 
     owner, repo_name = github_repo.split("/", 2)
-    UI.success("Published build artifacts to #{target_dir}")
+    UI.success("Updated web landing page for v#{version}")
     if owner && repo_name
-      UI.success("GitHub Pages DMG URL: https://#{owner}.github.io/#{repo_name}/macos-clean.dmg")
+      UI.success("GitHub Pages URL: https://#{owner}.github.io/#{repo_name}/")
     end
   end
 
   desc "Upload macos-clean.dmg to GitHub Releases via gh CLI"
   lane :github_release do |options|
-    target_dir = release_repo_dir
-    dmg_path = [File.join(target_dir, "macos-clean.dmg"), DMG_PATH].find { |p| File.exist?(p) }
-    UI.user_error!("Missing macos-clean.dmg in #{target_dir} or #{RELEASE_DIR}. Run `fastlane package_dmg` first.") unless dmg_path
+    dmg_path = DMG_PATH
+    UI.user_error!("Missing #{dmg_path}. Run `fastlane package_dmg` first.") unless File.exist?(dmg_path)
 
-    sha_path = ["#{dmg_path}.sha256", SHA_PATH].find { |p| File.exist?(p) }
+    sha_path = File.exist?(SHA_PATH) ? SHA_PATH : nil
     version = options[:version]&.to_s || read_project_setting("MARKETING_VERSION")
     tag = "v#{version}"
     repo = github_repo
@@ -276,7 +254,7 @@ platform :mac do
     end
   end
 
-  desc "Full release pipeline: test -> Developer ID build -> notarize & DMG -> publish to release repo -> GitHub Release"
+  desc "Full release pipeline: test -> Developer ID build -> notarize & DMG -> update web & push -> GitHub Release"
   lane :release do |options|
     build(options)
     package_dmg(options)

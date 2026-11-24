@@ -3,18 +3,17 @@ import Synchronization
 import Testing
 @testable import MacosCleanCore
 
-// MARK: - Categories (must match the reference scanner.rs)
+// MARK: - Categories
 
 @Suite("Categories")
 struct CategoryTests {
-    @Test func hasAllReferenceCategoriesWithUniqueIDs() {
+    @Test func hasAllCategoriesWithUniqueIDs() {
         let ids = CleanupCategory.all.map(\.id)
-        // The reference's 23, plus SwiftUI previews, iOS software updates and simulators (N6).
         #expect(ids.count == 26)
         #expect(Set(ids).count == ids.count)
     }
 
-    @Test func cautionCategoriesMatchReference() {
+    @Test func cautionCategoriesMatchExpectedSet() {
         let caution = Set(CleanupCategory.all.filter { $0.safety == .caution }.map(\.id))
         #expect(caution == [
             "xcode-archives", "docker-data", "claude-data",

@@ -30,7 +30,7 @@ public struct InstalledApp: Identifiable, Hashable, Sendable, Codable {
     public var hasRealBundleID: Bool { !bundleID.hasPrefix(AppCatalog.missingBundleIDPrefix) }
 }
 
-/// Lists installed apps. Port of `list_installed_apps` in the reference `apps.rs`.
+/// Lists installed apps across standard application directories.
 public struct AppCatalog: Sendable {
     public struct Root: Sendable, Hashable {
         public let url: URL

@@ -62,8 +62,7 @@ public struct FileManagerTrasher: Trashing {
 }
 
 /// Moves files to the Trash; it never deletes. Permanent deletion happens only in
-/// ``TrashEmptier``, and only for items already in the Trash. Mirrors `move_to_trash` /
-/// `clean_paths` in the reference `cleaner.rs`.
+/// ``TrashEmptier``, and only for items already in the Trash.
 public struct Cleaner: Sendable {
     public static let refusalMessage = "Refusing to trash a protected path."
 

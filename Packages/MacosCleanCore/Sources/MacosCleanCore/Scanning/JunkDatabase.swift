@@ -1,6 +1,6 @@
 import Foundation
 
-/// Curated junk-path database for popular apps (`app_junk_db.json`, port of the reference `appdb.rs`).
+/// Curated junk-path database for popular apps (`app_junk_db.json`).
 ///
 /// - `leftovers`: extra paths removed together with an app when it is uninstalled.
 /// - `safeCaches`: paths safe to clear while the app stays installed (powers "App Caches").

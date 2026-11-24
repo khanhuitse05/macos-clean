@@ -12,7 +12,7 @@ public enum LargeFileEvent: Sendable, Equatable {
     case finished(found: Int)
 }
 
-/// Streams files at or above a size threshold. Port of `scan_large_files` in the reference.
+/// Streams files at or above a size threshold.
 ///
 /// Skips caches, containers, the Trash, Photos libraries, `.git` and `node_modules`: those are
 /// either managed elsewhere (Storage Manager) or dangerous to remove file by file.

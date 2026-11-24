@@ -56,7 +56,7 @@ public struct AppLeftovers: Sendable, Equatable {
     public var allEntries: [FileEntry] { groups.flatMap(\.entries) }
 }
 
-/// Finds files an app leaves behind. Port of `scan_app_leftovers` in the reference `apps.rs`.
+/// Finds leftover files an app leaves behind in Library folders.
 public struct LeftoverScanner: Sendable {
     public let expander: PathExpander
     public let database: JunkDatabase

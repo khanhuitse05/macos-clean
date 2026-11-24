@@ -1,6 +1,6 @@
 import Foundation
 
-/// How risky it is to delete a category. Mirrors `safety` in the reference `scanner.rs`.
+/// How risky it is to delete a category.
 public enum Safety: String, Sendable, Codable, CaseIterable {
     case safe
     case caution
@@ -42,7 +42,7 @@ public struct CleanupCategory: Identifiable, Sendable {
 }
 
 extension CleanupCategory {
-    /// Same ids, order, safety classes and paths as `categories()` in the reference `scanner.rs`.
+    /// Built-in cleanup categories shown in Storage Manager.
     public static let all: [CleanupCategory] = [
         CleanupCategory(
             id: "user-caches",

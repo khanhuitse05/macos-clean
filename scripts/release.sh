@@ -21,12 +21,11 @@ Usage: ./scripts/release.sh [options]
 Options:
   --version <x.y.z>       Set MARKETING_VERSION in project.yml before building
   --build-number <n>      Set CURRENT_PROJECT_VERSION in project.yml
-  --release-repo <dir>    Path to macos-clean-release repo (default: ../maos-clean-release)
   --skip-tests            Skip MacosCleanCore unit tests
   --skip-notarize         Build & sign DMG locally without Apple notarization
-  --build-only            Build, sign, and package DMG locally without publishing to release repo
-  --skip-push             Copy artifacts and commit in release repo without pushing
-  --skip-github-release   Skip creating/updating GitHub Release on macos-clean-release
+  --build-only            Build, sign, and package DMG locally without publishing or creating a GitHub Release
+  --skip-push             Commit web/version updates locally without pushing to origin/main
+  --skip-github-release   Skip creating/updating GitHub Release on macos-clean
   --draft                 Create GitHub Release as a draft
   --prerelease            Mark GitHub Release as a prerelease
   -h, --help              Show this help
@@ -41,10 +40,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --build-number)
       BUILD_NUMBER="$2"
-      shift 2
-      ;;
-    --release-repo)
-      export RELEASE_REPO_DIR="$2"
       shift 2
       ;;
     --skip-tests)

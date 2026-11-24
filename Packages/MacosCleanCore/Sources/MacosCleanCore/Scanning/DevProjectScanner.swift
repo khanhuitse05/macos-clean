@@ -1,7 +1,7 @@
 import Foundation
 
 /// Finds regenerable build output and dependency folders inside code projects under the home
-/// folder. Port of `collect_dev_junk` in the reference `scanner.rs`.
+/// folder.
 ///
 /// Three confidence tiers:
 /// - unmistakable names (`node_modules`, `__pycache__`, `DerivedData`, …) anywhere;

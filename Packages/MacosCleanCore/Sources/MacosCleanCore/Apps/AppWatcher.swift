@@ -36,7 +36,6 @@ public struct AppsSnapshot: Sendable, Equatable, Codable {
 }
 
 /// Watches the Applications folders, records removed apps, and persists the list between launches.
-/// Port of `start_uninstall_watcher` / apps cache in the reference `apps.rs`.
 public actor AppWatcher {
     public static let tombstoneLifetime: TimeInterval = 30 * 24 * 60 * 60
 
