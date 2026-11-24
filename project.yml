@@ -1,0 +1,67 @@
+name: macos-clean
+
+options:
+  bundleIdPrefix: com.goldenowl
+  developmentLanguage: en
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "26.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # A cleanup tool must reach other apps' caches, so the App Sandbox stays OFF.
+    # Hardened Runtime is ON (required for notarization).
+    ENABLE_HARDENED_RUNTIME: YES
+
+packages:
+  MacosCleanCore:
+    path: Packages/MacosCleanCore
+
+targets:
+  macos-clean:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    dependencies:
+      - package: MacosCleanCore
+    entitlements:
+      path: App/macos-clean.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: macos-clean
+        CFBundleLocalizations: [en, vi]
+        LSApplicationCategoryType: public.app-category.utilities
+        NSDesktopFolderUsageDescription: >-
+          macos-clean scans your Desktop when you choose Home, Whole Disk, or a Desktop folder in Disk Map or Large Files so it can calculate local storage usage. For example, it can show a large video on your Desktop so you can review and move it to the Trash.
+        NSDocumentsFolderUsageDescription: >-
+          macos-clean scans your Documents folder when you choose Home, Whole Disk, or a Documents folder in Disk Map or Large Files so it can calculate local storage usage. For example, it can show a large exported project in Documents so you can review and move it to the Trash.
+        NSDownloadsFolderUsageDescription: >-
+          macos-clean scans your Downloads folder to calculate file sizes and lets you move selected old downloads to the Trash. For example, it can show a large installer in Downloads so you can review and move it to the Trash.
+        NSNetworkVolumesUsageDescription: >-
+          macos-clean scans network volumes only when you choose a network location or Whole Disk in Disk Map so it can calculate storage usage. For example, it can show large files on a mounted team share so you can decide whether to move selected items to the Trash.
+        NSRemovableVolumesUsageDescription: >-
+          macos-clean scans removable drives only when you choose a removable drive or Whole Disk in Disk Map so it can calculate storage usage. For example, it can show large archive files on an external USB drive so you can review and move selected items to the Trash.
+    settings:
+      base:
+        PRODUCT_NAME: macos-clean
+        PRODUCT_MODULE_NAME: MacosClean
+        PRODUCT_BUNDLE_IDENTIFIER: com.goldenowl.macos-clean
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: 369462BHJ6
+      configs:
+        # Ad-hoc locally. Note: Full Disk Access is tied to the code signature,
+        # so an ad-hoc build may need FDA re-granted after each rebuild.
+        Debug:
+          CODE_SIGN_IDENTITY: "-"
+        Release:
+          CODE_SIGN_IDENTITY: "Developer ID Application"

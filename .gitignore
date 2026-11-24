@@ -1,0 +1,14 @@
+.DS_Store
+.build/
+.swiftpm/
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+# Generated from project.yml by XcodeGen — regenerate with `xcodegen generate`.
+# Remove this line if you'd rather commit the generated project.
+macos-clean.xcodeproj/
+App/Info.plist
+App/macos-clean.entitlements
+reference-clean/
+SWIFTUI-REBUILD-PREP.md

@@ -1,0 +1,573 @@
+{
+  "version": 1,
+  "comment": "Curated junk-path database for popular macOS apps. 'match' entries: exact bundle id, exact app name (case-insensitive), or bundle-id prefix when ending in '*'. 'leftovers' = [category, path] pairs found ONLY during uninstall (categories: logs|preferences|caches|supporting). 'safe_caches' = paths safe to clear while the app stays installed (app should be quit). Paths support ~ and single-component * globs. Deliberately excludes anything directly under ~/Library/Caches/<bundle-id|name> (generic heuristics and the user-caches category already cover those).",
+  "apps": [
+    {
+      "name": "Google Chrome",
+      "match": ["com.google.Chrome", "Google Chrome"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Google/Chrome"],
+        ["caches", "~/Library/Caches/Google/Chrome"],
+        ["supporting", "~/Library/Google/GoogleSoftwareUpdate"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/Google/Chrome/*/Code Cache",
+        "~/Library/Application Support/Google/Chrome/*/GPUCache",
+        "~/Library/Application Support/Google/Chrome/GrShaderCache",
+        "~/Library/Application Support/Google/Chrome/GraphiteDawnCache",
+        "~/Library/Application Support/Google/Chrome/ShaderCache",
+        "~/Library/Application Support/Google/Chrome/component_crx_cache",
+        "~/Library/Application Support/Google/Chrome/Crashpad/completed"
+      ]
+    },
+    {
+      "name": "Microsoft Edge",
+      "match": ["com.microsoft.edgemac", "Microsoft Edge"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Microsoft Edge"],
+        ["caches", "~/Library/Caches/Microsoft Edge"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/Microsoft Edge/*/Code Cache",
+        "~/Library/Application Support/Microsoft Edge/*/GPUCache",
+        "~/Library/Application Support/Microsoft Edge/GrShaderCache",
+        "~/Library/Application Support/Microsoft Edge/ShaderCache"
+      ]
+    },
+    {
+      "name": "Brave Browser",
+      "match": ["com.brave.Browser", "Brave Browser"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/BraveSoftware"],
+        ["caches", "~/Library/Caches/BraveSoftware"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/BraveSoftware/Brave-Browser/*/Code Cache",
+        "~/Library/Application Support/BraveSoftware/Brave-Browser/*/GPUCache",
+        "~/Library/Application Support/BraveSoftware/Brave-Browser/GrShaderCache"
+      ]
+    },
+    {
+      "name": "Firefox",
+      "match": ["org.mozilla.firefox", "Firefox"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Firefox"],
+        ["caches", "~/Library/Caches/Firefox"],
+        ["caches", "~/Library/Caches/Mozilla"]
+      ],
+      "safe_caches": [
+        "~/Library/Caches/Firefox/Profiles/*/cache2",
+        "~/Library/Caches/Firefox/Profiles/*/startupCache"
+      ]
+    },
+    {
+      "name": "Arc",
+      "match": ["company.thebrowser.Browser", "Arc"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Arc"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/Arc/User Data/*/Code Cache",
+        "~/Library/Application Support/Arc/User Data/*/GPUCache",
+        "~/Library/Application Support/Arc/User Data/GrShaderCache"
+      ]
+    },
+    {
+      "name": "Vivaldi",
+      "match": ["com.vivaldi.Vivaldi", "Vivaldi"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Vivaldi"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/Vivaldi/*/Code Cache",
+        "~/Library/Application Support/Vivaldi/*/GPUCache"
+      ]
+    },
+    {
+      "name": "Slack",
+      "match": ["com.tinyspeck.slackmacgap", "Slack"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/Slack/Cache",
+        "~/Library/Application Support/Slack/Code Cache",
+        "~/Library/Application Support/Slack/GPUCache",
+        "~/Library/Application Support/Slack/Service Worker/CacheStorage",
+        "~/Library/Application Support/Slack/logs",
+        "~/Library/Containers/com.tinyspeck.slackmacgap/Data/Library/Application Support/Slack/Cache",
+        "~/Library/Containers/com.tinyspeck.slackmacgap/Data/Library/Application Support/Slack/Code Cache",
+        "~/Library/Containers/com.tinyspeck.slackmacgap/Data/Library/Application Support/Slack/Service Worker/CacheStorage"
+      ]
+    },
+    {
+      "name": "Zoom",
+      "match": ["us.zoom.xos", "zoom.us", "Zoom"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/zoom.us"],
+        ["logs", "~/Library/Logs/zoom.us"],
+        ["logs", "~/Library/Logs/zoominstall.log"],
+        ["preferences", "~/Library/Preferences/ZoomChat.plist"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Microsoft Teams",
+      "match": ["com.microsoft.teams2", "com.microsoft.teams", "Microsoft Teams"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Microsoft/Teams"],
+        ["supporting", "~/Library/Application Support/Teams"],
+        ["supporting", "~/Library/Group Containers/UBF8T346G9.com.microsoft.teams"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Discord",
+      "match": ["com.hnc.Discord", "Discord"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/discord"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/discord/Cache",
+        "~/Library/Application Support/discord/Code Cache",
+        "~/Library/Application Support/discord/GPUCache"
+      ]
+    },
+    {
+      "name": "WhatsApp",
+      "match": ["net.whatsapp.WhatsApp", "WhatsApp"],
+      "leftovers": [
+        ["supporting", "~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared"],
+        ["supporting", "~/Library/Group Containers/group.net.whatsapp.WhatsApp.private"],
+        ["supporting", "~/Library/Group Containers/group.net.whatsapp.family"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Telegram",
+      "match": ["ru.keepcoder.Telegram", "Telegram"],
+      "leftovers": [
+        ["supporting", "~/Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram"]
+      ],
+      "safe_caches": [
+        "~/Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram/appstore/account-*/postbox/media"
+      ]
+    },
+    {
+      "name": "Signal",
+      "match": ["org.whispersystems.signal-desktop", "Signal"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/Signal/Cache",
+        "~/Library/Application Support/Signal/Code Cache",
+        "~/Library/Application Support/Signal/GPUCache"
+      ]
+    },
+    {
+      "name": "Webex",
+      "match": ["Cisco-Systems.Spark", "Webex"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Cisco Spark"],
+        ["supporting", "~/Library/Application Support/WebEx Folder"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Visual Studio Code",
+      "match": ["com.microsoft.VSCode", "Visual Studio Code", "Code"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Code"],
+        ["supporting", "~/.vscode"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/Code/Cache",
+        "~/Library/Application Support/Code/CachedData",
+        "~/Library/Application Support/Code/CachedExtensionVSIXs",
+        "~/Library/Application Support/Code/Code Cache",
+        "~/Library/Application Support/Code/GPUCache",
+        "~/Library/Application Support/Code/Service Worker/CacheStorage",
+        "~/Library/Application Support/Code/logs"
+      ]
+    },
+    {
+      "name": "Cursor",
+      "match": ["com.todesktop.230313mzl4w4u92", "Cursor"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Cursor"],
+        ["supporting", "~/.cursor"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/Cursor/Cache",
+        "~/Library/Application Support/Cursor/CachedData",
+        "~/Library/Application Support/Cursor/Code Cache",
+        "~/Library/Application Support/Cursor/GPUCache",
+        "~/Library/Application Support/Cursor/logs"
+      ]
+    },
+    {
+      "name": "JetBrains IDEs",
+      "match": ["com.jetbrains.*", "IntelliJ IDEA", "PyCharm", "WebStorm", "GoLand", "RubyMine", "CLion", "Rider", "PhpStorm", "DataGrip", "Android Studio"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/JetBrains"],
+        ["logs", "~/Library/Logs/JetBrains"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Android Studio",
+      "match": ["com.google.android.studio", "Android Studio"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Google/AndroidStudio*"],
+        ["logs", "~/Library/Logs/Google/AndroidStudio*"],
+        ["supporting", "~/.android"],
+        ["supporting", "~/.gradle"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Docker Desktop",
+      "match": ["com.docker.docker", "Docker", "Docker Desktop"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Docker Desktop"],
+        ["supporting", "~/.docker"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Postman",
+      "match": ["com.postmanlabs.mac", "Postman"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/Postman/Cache",
+        "~/Library/Application Support/Postman/Code Cache",
+        "~/Library/Application Support/Postman/GPUCache",
+        "~/Library/Application Support/Postman/logs",
+        "~/Library/Application Support/Postman/proxy"
+      ]
+    },
+    {
+      "name": "GitHub Desktop",
+      "match": ["com.github.GitHubClient", "GitHub Desktop"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/GitHub Desktop/Cache",
+        "~/Library/Application Support/GitHub Desktop/Code Cache",
+        "~/Library/Application Support/GitHub Desktop/GPUCache",
+        "~/Library/Application Support/GitHub Desktop/logs"
+      ]
+    },
+    {
+      "name": "Sublime Text",
+      "match": ["com.sublimetext.4", "com.sublimetext.3", "Sublime Text"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/Sublime Text/Cache",
+        "~/Library/Application Support/Sublime Text 3/Cache"
+      ]
+    },
+    {
+      "name": "Spotify",
+      "match": ["com.spotify.client", "Spotify"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Spotify"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/Spotify/PersistentCache"
+      ]
+    },
+    {
+      "name": "Adobe Creative Cloud",
+      "match": ["com.adobe.*", "Adobe Photoshop", "Adobe Lightroom", "Adobe Premiere Pro", "Adobe Illustrator", "Adobe InDesign", "Adobe Acrobat", "Creative Cloud"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Adobe"],
+        ["supporting", "/Library/Application Support/Adobe"],
+        ["preferences", "~/Library/Preferences/Adobe"],
+        ["logs", "~/Library/Logs/Adobe"],
+        ["caches", "~/Library/Caches/Adobe"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/Adobe/Common/Media Cache Files",
+        "~/Library/Application Support/Adobe/Common/Media Cache",
+        "~/Library/Application Support/Adobe/Common/Peak Files",
+        "~/Library/Application Support/Adobe/CameraRaw/Cache"
+      ]
+    },
+    {
+      "name": "DaVinci Resolve",
+      "match": ["com.blackmagic-design.DaVinciResolve", "DaVinci Resolve"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Blackmagic Design/DaVinci Resolve"],
+        ["supporting", "/Library/Application Support/Blackmagic Design/DaVinci Resolve"],
+        ["preferences", "~/Library/Preferences/Blackmagic Design"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/Blackmagic Design/DaVinci Resolve/CacheClip",
+        "~/Library/Application Support/Blackmagic Design/DaVinci Resolve/.gallery"
+      ]
+    },
+    {
+      "name": "OBS Studio",
+      "match": ["com.obsproject.obs-studio", "OBS", "OBS Studio"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/obs-studio"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/obs-studio/logs",
+        "~/Library/Application Support/obs-studio/crashes",
+        "~/Library/Application Support/obs-studio/profiler_data",
+        "~/Library/Application Support/obs-studio/plugin_config/obs-browser/Cache"
+      ]
+    },
+    {
+      "name": "GIMP",
+      "match": ["org.gimp.gimp-2.10", "GIMP"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/GIMP"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "CapCut",
+      "match": ["com.lemon.lvoverseas", "CapCut"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/CapCut"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Camtasia",
+      "match": ["com.techsmith.*", "Camtasia"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/TechSmith"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Loom",
+      "match": ["com.loom.desktop", "Loom"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/Loom/Cache",
+        "~/Library/Application Support/Loom/Code Cache",
+        "~/Library/Application Support/Loom/GPUCache"
+      ]
+    },
+    {
+      "name": "Figma",
+      "match": ["com.figma.Desktop", "Figma"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/Figma/Cache",
+        "~/Library/Application Support/Figma/Code Cache",
+        "~/Library/Application Support/Figma/GPUCache",
+        "~/Library/Application Support/Figma/DesktopProfile/*/Code Cache",
+        "~/Library/Application Support/Figma/DesktopProfile/*/GPUCache"
+      ]
+    },
+    {
+      "name": "Canva",
+      "match": ["com.canva.CanvaDesktop", "Canva"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/Canva/Cache",
+        "~/Library/Application Support/Canva/Code Cache",
+        "~/Library/Application Support/Canva/GPUCache"
+      ]
+    },
+    {
+      "name": "Sketch",
+      "match": ["com.bohemiancoding.sketch3", "Sketch"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/com.bohemiancoding.sketch3/cloud-thumbnails"
+      ]
+    },
+    {
+      "name": "Microsoft Office",
+      "match": ["com.microsoft.Word", "com.microsoft.Excel", "com.microsoft.Powerpoint", "com.microsoft.Outlook", "com.microsoft.onenote.mac", "Microsoft Word", "Microsoft Excel", "Microsoft PowerPoint", "Microsoft Outlook", "Microsoft OneNote"],
+      "leftovers": [
+        ["supporting", "~/Library/Group Containers/UBF8T346G9.Office"],
+        ["supporting", "~/Library/Group Containers/UBF8T346G9.ms"],
+        ["supporting", "~/Library/Application Support/Microsoft/Office"],
+        ["preferences", "~/Library/Preferences/com.microsoft.office.plist"]
+      ],
+      "safe_caches": [
+        "~/Library/Group Containers/UBF8T346G9.Office/FontCache",
+        "~/Library/Group Containers/UBF8T346G9.Office/mip_policy_cache"
+      ]
+    },
+    {
+      "name": "OneDrive",
+      "match": ["com.microsoft.OneDrive", "OneDrive"],
+      "leftovers": [
+        ["supporting", "~/Library/Group Containers/UBF8T346G9.OneDriveStandaloneSuite"],
+        ["supporting", "~/Library/Group Containers/UBF8T346G9.OfficeOneDriveSyncIntegration"],
+        ["logs", "~/Library/Logs/OneDrive"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Dropbox",
+      "match": ["com.getdropbox.dropbox", "Dropbox"],
+      "leftovers": [
+        ["supporting", "~/.dropbox"],
+        ["supporting", "~/Library/Dropbox"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Google Drive",
+      "match": ["com.google.drivefs", "Google Drive"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Google/DriveFS"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/Google/DriveFS/*/content_cache"
+      ]
+    },
+    {
+      "name": "Notion",
+      "match": ["notion.id", "Notion"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/Notion/Cache",
+        "~/Library/Application Support/Notion/Code Cache",
+        "~/Library/Application Support/Notion/GPUCache",
+        "~/Library/Application Support/Notion/Service Worker/CacheStorage"
+      ]
+    },
+    {
+      "name": "Evernote",
+      "match": ["com.evernote.Evernote", "Evernote"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/Evernote/Cache",
+        "~/Library/Application Support/Evernote/Code Cache",
+        "~/Library/Application Support/Evernote/GPUCache"
+      ]
+    },
+    {
+      "name": "Obsidian",
+      "match": ["md.obsidian", "Obsidian"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/obsidian/Cache",
+        "~/Library/Application Support/obsidian/Code Cache",
+        "~/Library/Application Support/obsidian/GPUCache"
+      ]
+    },
+    {
+      "name": "1Password",
+      "match": ["com.1password.1password", "1Password"],
+      "leftovers": [
+        ["supporting", "~/Library/Group Containers/2BUA8C4S2C.com.1password"],
+        ["supporting", "~/Library/Containers/com.1password.1password-launcher"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Grammarly",
+      "match": ["com.grammarly.ProjectLlama", "Grammarly", "Grammarly Desktop"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Grammarly"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Anki",
+      "match": ["net.ankiweb.dtop", "Anki"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Anki2"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "ChatGPT",
+      "match": ["com.openai.chat", "ChatGPT"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/com.openai.chat"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Claude",
+      "match": ["com.anthropic.claudefordesktop", "Claude"],
+      "leftovers": [],
+      "safe_caches": [
+        "~/Library/Application Support/Claude/Cache",
+        "~/Library/Application Support/Claude/Code Cache",
+        "~/Library/Application Support/Claude/GPUCache"
+      ]
+    },
+    {
+      "name": "Steam",
+      "match": ["com.valvesoftware.steam", "Steam"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Steam"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/Steam/appcache",
+        "~/Library/Application Support/Steam/htmlcache",
+        "~/Library/Application Support/Steam/logs",
+        "~/Library/Application Support/Steam/dumps"
+      ]
+    },
+    {
+      "name": "Epic Games Launcher",
+      "match": ["com.epicgames.EpicGamesLauncher", "Epic Games Launcher"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Epic"]
+      ],
+      "safe_caches": [
+        "~/Library/Application Support/Epic/EpicGamesLauncher/webcache",
+        "~/Library/Application Support/Epic/EpicGamesLauncher/Saved/webcache*",
+        "~/Library/Application Support/Epic/EpicGamesLauncher/VaultCache"
+      ]
+    },
+    {
+      "name": "Battle.net",
+      "match": ["net.battle.app", "Battle.net"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Battle.net"],
+        ["supporting", "~/Library/Application Support/Blizzard"],
+        ["caches", "~/Library/Caches/Blizzard"],
+        ["supporting", "/Users/Shared/Battle.net"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Minecraft",
+      "match": ["com.mojang.minecraftlauncher", "Minecraft"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/minecraft"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Parallels Desktop",
+      "match": ["com.parallels.desktop.console", "Parallels Desktop"],
+      "leftovers": [
+        ["supporting", "~/Library/Parallels"],
+        ["preferences", "/Library/Preferences/Parallels"],
+        ["supporting", "/Users/Shared/Parallels"],
+        ["supporting", "~/Parallels"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "iStat Menus",
+      "match": ["com.bjango.istatmenus", "iStat Menus"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/iStat Menus*"]
+      ],
+      "safe_caches": []
+    },
+    {
+      "name": "Kindle",
+      "match": ["com.amazon.Kindle", "com.amazon.Lassen", "Kindle"],
+      "leftovers": [
+        ["supporting", "~/Library/Application Support/Kindle"],
+        ["supporting", "~/Library/Containers/com.amazon.Lassen"]
+      ],
+      "safe_caches": []
+    }
+  ]
+}

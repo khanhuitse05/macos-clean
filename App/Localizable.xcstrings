@@ -1,0 +1,26 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Coming soon" : {
+      "localizations" : {
+        "vi" : { "stringUnit" : { "state" : "translated", "value" : "Sắp ra mắt" } }
+      }
+    },
+    "Large Files" : {
+      "localizations" : {
+        "vi" : { "stringUnit" : { "state" : "translated", "value" : "Tệp Lớn" } }
+      }
+    },
+    "Storage Manager" : {
+      "localizations" : {
+        "vi" : { "stringUnit" : { "state" : "translated", "value" : "Quản lý Bộ nhớ" } }
+      }
+    },
+    "Uninstaller" : {
+      "localizations" : {
+        "vi" : { "stringUnit" : { "state" : "translated", "value" : "Gỡ ứng dụng" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}
