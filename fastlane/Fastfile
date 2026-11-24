@@ -256,6 +256,7 @@ platform :mac do
       if exists
         UI.important("Release #{tag} already exists on #{repo}; uploading updated assets...")
         sh("gh", "release", "upload", tag, *assets, "--repo", repo, "--clobber")
+        sh("gh", "release", "edit", tag, "--repo", repo, "--notes", notes)
       else
         cmd = [
           "gh", "release", "create", tag,
