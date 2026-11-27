@@ -2,6 +2,8 @@ import SwiftUI
 
 @main
 struct MacosCleanApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     var body: some Scene {
         Window("macOS Clean", id: "main") {
             ContentView()

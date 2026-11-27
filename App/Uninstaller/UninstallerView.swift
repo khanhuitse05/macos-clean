@@ -30,6 +30,19 @@ struct UninstallerView: View {
         .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search apps")
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Menu {
+                    Picker("Matching", selection: $model.sensitivity) {
+                        ForEach(MatchSensitivity.allCases) { level in
+                            Text(level.title).tag(level)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    Divider()
+                    Text(model.sensitivity.details)
+                } label: {
+                    Label("Matching: \(String(localized: model.sensitivity.title))", systemImage: "scope")
+                }
+                .help("How widely to look for an app's files: Strict, Enhanced or Deep")
                 Picker("Sort By", selection: $model.sortOrder) {
                     ForEach(UninstallerModel.SortOrder.allCases) { Text($0.rawValue).tag($0) }
                 }
@@ -71,6 +84,25 @@ private struct AppListPane: View {
                     }
                 }
             }
+            if !model.visibleOrphans.isEmpty || model.isFindingOrphans {
+                Section {
+                    if model.isFindingOrphans && model.visibleOrphans.isEmpty {
+                        HStack { ProgressView().controlSize(.small); Text("Looking for leftovers…").foregroundStyle(.secondary) }
+                            .selectionDisabled()
+                    }
+                    ForEach(model.visibleOrphans) { orphan in
+                        OrphanRow(orphan: orphan)
+                            .tag(UninstallItem.orphan(orphan).id)
+                            .contextMenu {
+                                Button("Show in Finder", systemImage: "folder") { FileActions.reveal(orphan.paths) }
+                                Button("Ignore", systemImage: "eye.slash") { model.ignore(orphan) }
+                            }
+                    }
+                } header: {
+                    Text("Leftovers of Deleted Apps")
+                        .help("Files named after apps that are no longer on this Mac. Review each one: nothing is ticked for you.")
+                }
+            }
             Section("Applications") {
                 if model.isLoading && model.visibleApps.isEmpty {
                     HStack { ProgressView().controlSize(.small); Text("Loading apps…").foregroundStyle(.secondary) }
@@ -93,7 +125,7 @@ private struct AppListPane: View {
         }
         .listStyle(.sidebar)
         .overlay {
-            if !model.isLoading, model.visibleApps.isEmpty, model.visibleRemoved.isEmpty, !model.searchText.isEmpty {
+            if !model.isLoading, model.visibleApps.isEmpty, model.visibleRemoved.isEmpty, model.visibleOrphans.isEmpty, !model.searchText.isEmpty {
                 ContentUnavailableView.search(text: model.searchText)
             }
         }
@@ -163,6 +195,31 @@ private struct AppRow: View {
     }
 }
 
+private struct OrphanRow: View {
+    let orphan: OrphanApp
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "questionmark.app.dashed")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(orphan.bundleID).lineLimit(1).truncationMode(.middle)
+                Text("\(orphan.paths.count) \(orphan.paths.count == 1 ? "item" : "items")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 6)
+            Text(orphan.bytes.fileSize)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 private struct RemovedAppRow: View {
     let name: String
     let removedAt: Date
@@ -217,6 +274,9 @@ private struct AppDetailPane: View {
                         if case .removed(let gone) = item {
                             Button("Remove from List") { Task { await model.dismiss(gone) } }
                         }
+                        if case .orphan(let orphan) = item {
+                            Button("Remove from List") { model.ignore(orphan) }
+                        }
                     }
                     .foregroundStyle(.secondary)
                 } else {
@@ -270,6 +330,10 @@ private struct AppDetailPane: View {
                         Label("May contain your documents or settings. Review before removing.", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
                             .foregroundStyle(.orange)
+                    } else if group.kind == .possible {
+                        Label("Matched by a similar name only. These may belong to another app.", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
                     }
                 }
                 Spacer(minLength: 8)
@@ -313,6 +377,8 @@ private struct AppHeader: View {
             Group {
                 if let url = item.appURL {
                     Image(nsImage: IconCache.appIcon(url.path)).resizable()
+                } else if case .orphan = item {
+                    Image(systemName: "questionmark.app.dashed").resizable().foregroundStyle(.secondary)
                 } else {
                     Image(systemName: "app.dashed").resizable().foregroundStyle(.secondary)
                 }
@@ -343,6 +409,12 @@ private struct AppHeader: View {
                     Text("\(gone.bundleID) · removed \(gone.removedAt, format: .relative(presentation: .named))")
                         .foregroundStyle(.secondary)
                     Text("The app is gone, but these files were left behind.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                case .orphan(let orphan):
+                    Text("\(orphan.bytes.fileSize) · no app on this Mac uses this identifier")
+                        .foregroundStyle(.secondary)
+                    Text("Probably left by an app deleted earlier. Nothing is ticked: check each item before removing it.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }

@@ -54,6 +54,23 @@ final class AppState {
         section = .uninstaller
     }
 
+    /// "Uninstall with macOS Clean" from Finder: opens the app in the Uninstaller, re-listing
+    /// apps first if it was just installed or the list hasn't loaded yet.
+    func reviewAppFromFinder(at path: String) async {
+        let resolved = URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        func find() -> InstalledApp? {
+            uninstaller.apps.first { $0.path == path || URL(fileURLWithPath: $0.path).resolvingSymlinksInPath().path == resolved }
+        }
+        section = .uninstaller
+        if find() == nil { await uninstaller.refresh() }
+        guard let app = find() else {
+            let name = (path as NSString).lastPathComponent
+            uninstaller.errorMessage = "macOS Clean lists apps in /Applications and ~/Applications. Move \(name) there to uninstall it here, or drag it to the Trash."
+            return
+        }
+        reviewApp(at: app.path)
+    }
+
     /// True while a section is scanning or measuring, so its sidebar row can show a spinner.
     func isScanning(_ section: AppSection) -> Bool {
         switch section {
@@ -98,6 +115,8 @@ final class AppState {
 struct ContentView: View {
     @State private var state = AppState()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.openWindow) private var openWindow
+    private let router = AppRouter.shared
 
     var body: some View {
         @Bindable var access = state.access
@@ -149,6 +168,15 @@ struct ContentView: View {
         }
         .task {
             await state.access.showWelcomeIfNeeded()
+        }
+        .task {
+            // Finder's "Uninstall with macOS Clean" may arrive before or after the window opens.
+            router.openMainWindow = { [openWindow] in openWindow(id: "main") }
+            if let path = router.takePendingUninstall() { await state.reviewAppFromFinder(at: path) }
+        }
+        .onChange(of: router.pendingUninstallPath) { _, path in
+            guard path != nil, let path = router.takePendingUninstall() else { return }
+            Task { await state.reviewAppFromFinder(at: path) }
         }
         .task {
             // Last run's results appear at once; a background rescan then refreshes them.

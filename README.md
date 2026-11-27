@@ -34,7 +34,7 @@ A native macOS 26 utility built with Swift 6 and SwiftUI. It finds caches, devel
 - **Large Files**: fast scan with size thresholds, exclusions and Quick Look.
 - **Duplicates**: finds identical files by size and `CryptoKit` hash, skipping hard links.
 - **File Browser**: multi-column view with instant folder sizes.
-- **Uninstaller**: removes leftover preferences, caches and logs of deleted apps.
+- **Uninstaller**: removes apps with their preferences, caches and logs, using Strict, Enhanced or Deep matching. It also finds leftovers of apps deleted long ago, and adds an "Uninstall with macOS Clean" item to Finder's Services menu.
 - **Trash & History**: empty the Trash in-app, review past cleanups, and meet **Bubbl**, the mascot.
 
 ## Safety & Privacy

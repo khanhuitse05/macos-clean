@@ -40,6 +40,15 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleLocalizations: [en]
         LSApplicationCategoryType: public.app-category.utilities
+        # Finder › right-click an app › Services › "Uninstall with macOS Clean" (ServiceProvider).
+        NSServices:
+          - NSMenuItem:
+              default: Uninstall with macOS Clean
+            NSMessage: uninstallApp
+            NSPortName: macOS Clean
+            NSRequiredContext: {}
+            NSSendFileTypes:
+              - com.apple.application-bundle
         NSDesktopFolderUsageDescription: >-
           macOS Clean scans your Desktop when you search your Home folder for large files or code-project leftovers. For example, it can show a large video on your Desktop so you can review and move it to the Trash.
         NSDocumentsFolderUsageDescription: >-

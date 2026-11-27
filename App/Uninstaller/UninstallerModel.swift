@@ -7,11 +7,14 @@ import SwiftUI
 enum UninstallItem: Hashable, Identifiable {
     case app(InstalledApp)
     case removed(RemovedApp)
+    /// Files named after an app that is no longer on this Mac (``OrphanFinder``).
+    case orphan(OrphanApp)
 
     var id: String {
         switch self {
         case .app(let app): "app:" + app.path
         case .removed(let removed): "removed:" + removed.bundleID
+        case .orphan(let orphan): "orphan:" + orphan.bundleID
         }
     }
 
@@ -19,6 +22,7 @@ enum UninstallItem: Hashable, Identifiable {
         switch self {
         case .app(let app): app.name
         case .removed(let removed): removed.name
+        case .orphan(let orphan): orphan.bundleID
         }
     }
 
@@ -26,6 +30,7 @@ enum UninstallItem: Hashable, Identifiable {
         switch self {
         case .app(let app): app.bundleID
         case .removed(let removed): removed.bundleID
+        case .orphan(let orphan): orphan.bundleID
         }
     }
 
@@ -47,6 +52,21 @@ final class UninstallerModel {
     private(set) var visibleApps: [InstalledApp] = []
     private(set) var visibleRemoved: [RemovedApp] = []
     private(set) var isLoading = true
+    /// Leftovers of apps deleted before macOS Clean was watching. Found once apps are listed.
+    private(set) var orphans: [OrphanApp] = []
+    private(set) var visibleOrphans: [OrphanApp] = []
+    private(set) var isFindingOrphans = false
+
+    /// How widely leftovers are looked for. Changing it rescans the open app.
+    var sensitivity: MatchSensitivity = UninstallerModel.savedSensitivity {
+        didSet {
+            guard sensitivity != oldValue else { return }
+            UserDefaults.standard.set(sensitivity.rawValue, forKey: Self.sensitivityKey)
+            leftovers = leftovers.filter { $0.key.hasPrefix("orphan:") }
+            checked = checked.filter { $0.key.hasPrefix("orphan:") }
+            if let item = selectedItem { Task { await loadLeftovers(for: item) } }
+        }
+    }
 
     var searchText = "" { didSet { refreshVisible() } }
     var sortOrder: SortOrder = .name { didSet { refreshVisible() } }
@@ -70,6 +90,17 @@ final class UninstallerModel {
     private var sizeTask: Task<Void, Never>?
     private var knownRemovedIDs: Set<String>?
     private var appliedExclusions = ExclusionStore.shared.list
+    private var orphanTask: Task<Void, Never>?
+    /// The installed apps the last orphan search ran against.
+    private var orphanSearchApps: [InstalledApp]?
+    /// Orphans the user chose to forget. Persisted.
+    private var ignoredOrphans = Set(UserDefaults.standard.stringArray(forKey: UninstallerModel.ignoredOrphansKey) ?? [])
+
+    private static let sensitivityKey = "UninstallerMatchSensitivity"
+    private static let ignoredOrphansKey = "UninstallerIgnoredOrphans"
+    private static var savedSensitivity: MatchSensitivity {
+        UserDefaults.standard.string(forKey: sensitivityKey).flatMap(MatchSensitivity.init(rawValue:)) ?? .strict
+    }
 
     // MARK: Lifecycle
 
@@ -99,13 +130,65 @@ final class UninstallerModel {
         if snapshot.removed != removed { removed = snapshot.removed }
         isLoading = false
         // Drop leftovers of apps that changed so they're rescanned when next opened.
-        let liveIDs = Set(apps.map { UninstallItem.app($0).id } + removed.map { UninstallItem.removed($0).id })
+        let liveIDs = Set(apps.map { UninstallItem.app($0).id } + removed.map { UninstallItem.removed($0).id }
+            + orphans.map { UninstallItem.orphan($0).id })
         leftovers = leftovers.filter { liveIDs.contains($0.key) }
         checked = checked.filter { liveIDs.contains($0.key) }
         if let selectedID, !liveIDs.contains(selectedID) { self.selectedID = nil }
         refreshVisible()
         computeSizes()
         loadLastUsedDates()
+        findOrphansIfNeeded()
+    }
+
+    // MARK: Orphans
+
+    /// Looks for orphans again when the set of installed apps changed since the last search.
+    private func findOrphansIfNeeded() {
+        guard orphanSearchApps != apps, !apps.isEmpty else { return }
+        findOrphans()
+    }
+
+    func findOrphans() {
+        orphanTask?.cancel()
+        orphanSearchApps = apps
+        let index = InstalledAppIndex(apps: apps)
+        let ignoring = ignoredOrphans.union(removed.map(\.bundleID))
+        let finder = OrphanFinder(exclusions: ExclusionStore.shared.list)
+        isFindingOrphans = true
+        orphanTask = Task { [weak self] in
+            let found = await finder.find(installed: index, isKnownApp: Self.isKnownApp, ignoring: ignoring)
+            guard !Task.isCancelled, let self else { return }
+            orphans = found
+            isFindingOrphans = false
+            let live = Set(found.map { UninstallItem.orphan($0).id })
+            leftovers = leftovers.filter { !$0.key.hasPrefix("orphan:") || live.contains($0.key) }
+            if let selectedID, selectedID.hasPrefix("orphan:"), !live.contains(selectedID) { self.selectedID = nil }
+            refreshVisible()
+        }
+    }
+
+    /// Launch Services knows an app with this identifier somewhere (outside the Trash).
+    private nonisolated static func isKnownApp(_ bundleID: String) -> Bool {
+        let trash = (NSHomeDirectory() as NSString).appendingPathComponent(".Trash") + "/"
+        return NSWorkspace.shared.urlsForApplications(withBundleIdentifier: bundleID)
+            .contains { !$0.path.hasPrefix(trash) && !$0.path.contains("/.Trashes/") }
+    }
+
+    /// Hides an orphan for good (until the user clears the list in a future version).
+    func ignore(_ orphan: OrphanApp) {
+        ignoredOrphans.insert(orphan.bundleID)
+        UserDefaults.standard.set(Array(ignoredOrphans).sorted(), forKey: Self.ignoredOrphansKey)
+        drop(orphan)
+    }
+
+    private func drop(_ orphan: OrphanApp) {
+        orphans.removeAll { $0.bundleID == orphan.bundleID }
+        let id = UninstallItem.orphan(orphan).id
+        leftovers[id] = nil
+        checked[id] = nil
+        if selectedID == id { selectedID = nil }
+        refreshVisible()
     }
 
     /// Reads `kMDItemLastUsedDate` for every app off the main thread.
@@ -136,6 +219,7 @@ final class UninstallerModel {
             query.isEmpty || name.localizedStandardContains(query) || id.localizedStandardContains(query)
         }
         visibleRemoved = removed.filter { matches($0.name, $0.bundleID) }
+        visibleOrphans = orphans.filter { matches($0.bundleID, $0.bundleID) }
         var list = apps.filter { matches($0.name, $0.bundleID) }
         switch sortOrder {
         case .name: break // catalog order is already by name
@@ -183,6 +267,7 @@ final class UninstallerModel {
         guard let selectedID else { return nil }
         if let app = apps.first(where: { UninstallItem.app($0).id == selectedID }) { return .app(app) }
         if let gone = removed.first(where: { UninstallItem.removed($0).id == selectedID }) { return .removed(gone) }
+        if let orphan = orphans.first(where: { UninstallItem.orphan($0).id == selectedID }) { return .orphan(orphan) }
         return nil
     }
 
@@ -199,12 +284,25 @@ final class UninstallerModel {
         if case .app(let app) = item, !app.canUninstall { return }
         guard leftovers[item.id] == nil, !loadingLeftovers.contains(item.id) else { return }
         loadingLeftovers.insert(item.id)
-        let scanned = await leftoverScanner.scan(bundleID: item.bundleID, name: item.name, appURL: item.appURL)
+        let scanned: AppLeftovers
+        if case .orphan(let orphan) = item {
+            scanned = await leftoverScanner.leftovers(at: orphan.paths, bundleID: orphan.bundleID)
+        } else {
+            scanned = await leftoverScanner.scan(
+                bundleID: item.bundleID, name: item.name, appURL: item.appURL,
+                sensitivity: sensitivity, others: InstalledAppIndex(apps: apps, excluding: item.bundleID)
+            )
+        }
         loadingLeftovers.remove(item.id)
         let result = Self.removingExcluded(scanned, keeping: item.appURL, exclusions: ExclusionStore.shared.list)
         leftovers[item.id] = result
-        // Everything except Supporting Files (may hold the user's own documents) starts ticked.
-        checked[item.id] = Set(result.groups.filter { !$0.kind.mayContainUserData }.flatMap { $0.entries.map(\.path) })
+        // Orphans are a guess, so nothing starts ticked. Otherwise everything except Supporting
+        // Files (may hold the user's own documents) and name-only matches starts ticked.
+        if case .orphan = item {
+            checked[item.id] = []
+        } else {
+            checked[item.id] = Set(result.groups.filter { !$0.kind.startsUnchecked }.flatMap { $0.entries.map(\.path) })
+        }
     }
 
     /// Leftovers that overlap an excluded folder are never offered. The app bundle itself stays.
@@ -336,6 +434,9 @@ final class UninstallerModel {
             checked[item.id]?.subtract(gone)
             if case .removed(let gone) = item, groups.isEmpty {
                 apply(await watcher.dismiss(bundleID: gone.bundleID))
+            }
+            if case .orphan(let orphan) = item, groups.isEmpty {
+                drop(orphan)
             }
         }
         if removesApp(item) || item.appURL.map({ gone.contains($0.path) }) == true {
