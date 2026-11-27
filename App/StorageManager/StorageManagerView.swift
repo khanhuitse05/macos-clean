@@ -14,18 +14,42 @@ struct StorageManagerView: View {
     @State private var expanded: Set<String> = []
     @State private var previewURL: URL?
     @State private var trashButton = FrameBox()
+    /// A category a suggestion card pointed at; the list scrolls to it.
+    @State private var scrollTarget: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        ScrollViewReader { proxy in
+            list
+                .onChange(of: scrollTarget) { _, target in
+                    guard let target else { return }
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.45)) {
+                        proxy.scrollTo(target, anchor: .top)
+                    }
+                    scrollTarget = nil
+                }
+        }
+        // Emptying the Trash (here or in the Trash section) frees space: re-read the disk.
+        .onChange(of: trash.bin.bytes) { old, new in
+            if new < old { model.refreshVolume(settling: true) }
+        }
+        .task { model.refreshVolume() }
+    }
+
+    private var list: some View {
         @Bindable var model = model
-        List {
+        return List {
             StorageSummaryHeader(
                 foundBytes: model.foundBytes,
                 selectedBytes: model.selectedBytes,
+                trashBytes: trash.bin.isMeasured ? trash.bin.bytes : 0,
                 volume: model.volume,
                 hasResults: model.hasAnyResult,
                 isScanning: model.isScanningAll,
+                scanAllProgress: model.scanAllProgress,
                 history: trash.history.history,
-                liveBytes: { model.liveScannedBytes }
+                liveBytes: { model.liveScannedBytes },
+                liveFolder: { model.liveFolder }
             )
             .listRowSeparator(.hidden)
 
@@ -49,7 +73,8 @@ struct StorageManagerView: View {
                     .listRowSeparator(.hidden)
             }
 
-            ForEach(model.categories.filter(model.isVisible)) { category in
+            // Largest first, re-sorted as each scan finishes.
+            ForEach(model.orderedCategories.filter(model.isVisible)) { category in
                 CategoryDisclosure(
                     category: category,
                     model: model,
@@ -57,6 +82,7 @@ struct StorageManagerView: View {
                     expanded: $expanded,
                     onQuickLook: { previewURL = $0 }
                 )
+                .id(category.id)
             }
         }
         .listStyle(.inset)
@@ -129,8 +155,10 @@ struct StorageManagerView: View {
             onReviewApp(path)
         case .select(let categoryID, let paths):
             model.select(paths: paths)
-            // Show what was ticked.
-            expanded.insert(categoryID)
+            // Show what was ticked: open the category, bring it into view and make it glow.
+            Motion.animate(.snappy(duration: 0.28)) { _ = expanded.insert(categoryID) }
+            scrollTarget = categoryID
+            model.highlight(categoryID)
         }
     }
 
@@ -202,20 +230,25 @@ private struct FilterStatusRow: View {
 private struct StorageSummaryHeader: View {
     let foundBytes: Int64
     let selectedBytes: Int64
+    /// What the Trash holds: still on disk until it's emptied.
+    let trashBytes: Int64
     let volume: VolumeUsage?
     let hasResults: Bool
     let isScanning: Bool
+    let scanAllProgress: (done: Int, total: Int)?
     let history: CleaningHistory
     /// Sampled while the first scan runs.
     let liveBytes: () -> Int64
+    /// Sampled while a full scan runs.
+    let liveFolder: () -> String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             if hasResults {
-                Text(foundBytes.fileSize)
+                // Counts up as categories finish, and down as items leave for the Trash.
+                CountingBytes(bytes: Double(foundBytes))
                     .font(.system(size: 34, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
+                    .motionAnimation(.smooth(duration: 0.9), value: foundBytes)
                 Text("Found in caches, logs, developer files and downloads. Safe items are ticked for you; review the ones marked Caution.")
                     .foregroundStyle(.secondary)
             } else if isScanning {
@@ -231,7 +264,7 @@ private struct StorageSummaryHeader: View {
                             .motionAnimation(.snappy, value: bytes)
                     }
                 }
-                Text("Measuring every category. Results appear as each one finishes.")
+                Text("Measuring every category. Results appear as each one finishes, largest first.")
                     .foregroundStyle(.secondary)
             } else {
                 Text("Find space you can free")
@@ -239,9 +272,17 @@ private struct StorageSummaryHeader: View {
                 Text("Scan all categories, or click a category to scan just that one. Nothing is removed until you confirm, and cleaned items go to the Trash first.")
                     .foregroundStyle(.secondary)
             }
+            if let scanAllProgress {
+                ScanAllProgressLine(progress: scanAllProgress, liveFolder: liveFolder)
+                    .padding(.top, 6)
+                    .motionTransition(.opacity.combined(with: .move(edge: .top)))
+            }
             if let volume {
-                StorageBar(volume: volume, foundBytes: hasResults ? foundBytes : 0, selectedBytes: selectedBytes)
-                    .padding(.top, 8)
+                StorageBar(
+                    volume: volume, foundBytes: hasResults ? foundBytes : 0, selectedBytes: selectedBytes,
+                    trashBytes: trashBytes
+                )
+                .padding(.top, 8)
             }
             CleaningHistoryLine(history: history)
                 .padding(.top, 2)
@@ -249,6 +290,56 @@ private struct StorageSummaryHeader: View {
         .fixedSize(horizontal: false, vertical: true)
         .padding(.vertical, 8)
         .motionAnimation(.default, value: foundBytes)
+        .motionAnimation(.snappy, value: scanAllProgress == nil)
+    }
+}
+
+/// "Scanning 12 of 38 categories", a thin bar, and the folder being read right now.
+private struct ScanAllProgressLine: View {
+    let progress: (done: Int, total: Int)
+    let liveFolder: () -> String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ProgressView(value: Double(progress.done), total: Double(max(1, progress.total)))
+                .progressViewStyle(.linear)
+                .controlSize(.small)
+                .motionAnimation(.smooth(duration: 0.5), value: progress.done)
+            HStack(spacing: 6) {
+                Text("\(progress.done.formatted()) of \(progress.total.formatted()) categories")
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .motionAnimation(.snappy, value: progress.done)
+                FolderTicker(folder: liveFolder)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// The folder a scan is reading, sampled a few times a second; each new one slides in.
+private struct FolderTicker: View {
+    let folder: () -> String?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.4)) { _ in
+            let path = folder()?.abbreviatingHome
+            ZStack(alignment: .leading) {
+                if let path {
+                    Text(path)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .foregroundStyle(.tertiary)
+                        .id(path)
+                        .motionTransition(.push(from: .bottom))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .clipped()
+            .motionAnimation(.snappy(duration: 0.25), value: path)
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -258,17 +349,28 @@ private struct StorageBar: View {
     let volume: VolumeUsage
     let foundBytes: Int64
     let selectedBytes: Int64
+    /// Moved to the Trash but still on disk: cleaned items slide here, and leave the bar
+    /// (becoming free space) when the Trash is emptied.
+    let trashBytes: Int64
+
+    @State private var freedBurst = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static let trashColor = Color.purple.opacity(0.45)
 
     var body: some View {
         let total = Double(volume.total)
-        let found = min(Double(foundBytes), Double(volume.used))
+        let used = Double(volume.used)
+        let found = min(Double(foundBytes), used)
         let selected = min(Double(selectedBytes), found)
-        let other = Double(volume.used) - found
+        let inTrash = min(Double(trashBytes), used - found)
+        let other = used - found - inTrash
         VStack(alignment: .leading, spacing: 6) {
             GeometryReader { proxy in
                 let width = proxy.size.width
                 HStack(spacing: 0) {
                     Rectangle().fill(.gray.opacity(0.45)).frame(width: width * other / total)
+                    Rectangle().fill(Self.trashColor).frame(width: width * inTrash / total)
                     Rectangle().fill(.orange.opacity(0.55)).frame(width: width * (found - selected) / total)
                     Rectangle().fill(.tint).frame(width: width * selected / total)
                     Spacer(minLength: 0)
@@ -280,10 +382,13 @@ private struct StorageBar: View {
             .frame(height: 10)
             .accessibilityHidden(true)
             HStack(spacing: 14) {
-                LegendItem(color: .gray.opacity(0.45), label: "Used", bytes: volume.used - Int64(found))
+                LegendItem(color: .gray.opacity(0.45), label: "Used", bytes: Int64(other))
+                if inTrash > 0 { LegendItem(color: Self.trashColor, label: "In Trash", bytes: Int64(inTrash)) }
                 if found - selected > 0 { LegendItem(color: .orange.opacity(0.55), label: "Cleanable", bytes: Int64(found - selected)) }
                 if selected > 0 { LegendItem(color: .accentColor, label: "Selected", bytes: Int64(selected)) }
                 LegendItem(color: .secondary.opacity(0.25), label: "Free", bytes: volume.available)
+                    // Space really coming back (the Trash emptied) gets a little burst.
+                    .overlay(alignment: .leading) { SparkleBurst(trigger: freedBurst, tint: .green).offset(x: 4) }
                 Spacer(minLength: 0)
             }
             .font(.caption)
@@ -291,7 +396,11 @@ private struct StorageBar: View {
         }
         .motionAnimation(.smooth(duration: 0.6), value: foundBytes)
         .motionAnimation(.smooth(duration: 0.4), value: selectedBytes)
-        .motionAnimation(.smooth(duration: 0.6), value: volume)
+        .motionAnimation(.smooth(duration: 0.6), value: trashBytes)
+        .motionAnimation(.smooth(duration: 0.8), value: volume)
+        .onChange(of: volume.available) { old, new in
+            if !reduceMotion, new - old >= 10_000_000 { freedBurst += 1 }
+        }
         .accessibilityElement(children: .combine)
     }
 }
@@ -305,23 +414,33 @@ private struct LegendItem: View {
         HStack(spacing: 4) {
             Circle().fill(color).frame(width: 7, height: 7)
             Text(label)
-            Text(bytes.fileSize)
-                .monospacedDigit()
-                .contentTransition(.numericText())
+            // Counts rather than swapping digits, so freed space visibly rolls up.
+            CountingBytes(bytes: Double(bytes))
         }
     }
 }
 
-/// Bytes and files measured so far for one category, sampled four times a second.
+/// Bytes and files measured so far for one category, sampled four times a second. On a
+/// rescan the ring fills toward the size found last time.
 private struct ScanTicker: View {
     let progress: ScanProgress
+    /// The category's size before this scan; nil on a first scan (spinner instead of a ring).
+    let expected: Int64?
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
             let bytes = progress.bytes
             let files = progress.files
             HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
+                if let expected, expected > 0 {
+                    // Never shows full: the folder may have grown since.
+                    ProgressView(value: min(0.97, Double(bytes) / Double(expected)))
+                        .progressViewStyle(.circular)
+                        .controlSize(.small)
+                        .motionAnimation(.smooth(duration: 0.25), value: bytes)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(bytes.fileSize)
                         .font(.body.weight(.medium))
@@ -387,7 +506,10 @@ private struct CategoryDisclosure: View {
         Binding(
             get: { expanded.contains(category.id) },
             set: { open in
-                if open { expanded.insert(category.id) } else { expanded.remove(category.id) }
+                // Rows slide open and closed together with the chevron.
+                Motion.animate(.snappy(duration: 0.28)) {
+                    if open { expanded.insert(category.id) } else { expanded.remove(category.id) }
+                }
             }
         )
     }
@@ -421,12 +543,19 @@ private struct CategoryRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .help(Text(category.details))
+                if phase == .scanning, let progress = model.liveProgress(of: category) {
+                    FolderTicker(folder: { progress.currentFolder })
+                        .font(.caption)
+                        .motionTransition(.opacity.combined(with: .move(edge: .top)))
+                }
             }
             Spacer(minLength: 12)
             trailing
         }
         .padding(.vertical, 4)
         .contentShape(.rect)
+        .background { RowGlow(trigger: model.highlights[category.id] ?? 0) }
+        .motionAnimation(.snappy, value: phase == .scanning)
     }
 
     private var scannedAt: Date? {
@@ -441,7 +570,7 @@ private struct CategoryRow: View {
                 .controlSize(.small)
         case .scanning:
             if let progress = model.liveProgress(of: category) {
-                ScanTicker(progress: progress)
+                ScanTicker(progress: progress, expected: model.expectedBytes(of: category))
             } else {
                 ProgressView().controlSize(.small)
             }
@@ -459,10 +588,12 @@ private struct CategoryRow: View {
                         .help("macOS blocked some folders. Grant Full Disk Access to include them.")
                 }
                 VStack(alignment: .trailing, spacing: 1) {
-                    Text(result.entries.isEmpty && !result.deniedPaths.isEmpty ? "Blocked" : result.totalBytes.fileSize)
-                        .font(.body.weight(.medium))
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
+                    if result.entries.isEmpty && !result.deniedPaths.isEmpty {
+                        Text("Blocked").font(.body.weight(.medium))
+                    } else {
+                        CountUpBytes(bytes: result.totalBytes, fromZero: model.isJustRevealed(category))
+                            .font(.body.weight(.medium))
+                    }
                     let selected = model.selectedBytes(in: category)
                     if selected > 0 {
                         Text("\(selected.fileSize) selected")
@@ -550,12 +681,10 @@ private struct EntryRow: View {
         Binding(
             get: { expanded.contains(entry.path) },
             set: { open in
-                if open {
-                    // Prefetched children appear in the same frame, without a "Loading…" row.
-                    model.expand(entry)
-                    expanded.insert(entry.path)
-                } else {
-                    expanded.remove(entry.path)
+                // Prefetched children appear in the same frame, without a "Loading…" row.
+                if open { model.expand(entry) }
+                Motion.animate(.snappy(duration: 0.28)) {
+                    if open { expanded.insert(entry.path) } else { expanded.remove(entry.path) }
                 }
             }
         )
@@ -598,6 +727,50 @@ private struct SimulatorLabel: View {
             parts.append("never used")
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// A soft tinted wash that fades in and out behind a row each time `trigger` changes:
+/// results just arrived, or a suggestion pointed here. Opacity only, so it stays with
+/// Reduce motion on.
+private struct RowGlow: View {
+    let trigger: Int
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(.tint)
+            .padding(.horizontal, -6)
+            .keyframeAnimator(initialValue: 0.0, trigger: trigger) { content, opacity in
+                content.opacity(opacity)
+            } keyframes: { _ in
+                CubicKeyframe(0.16, duration: 0.25)
+                CubicKeyframe(0.16, duration: 0.35)
+                CubicKeyframe(0, duration: 0.9)
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// A size that counts up from zero when it first appears right after a scan (`fromZero`),
+/// and counts to each new value after that.
+private struct CountUpBytes: View {
+    let bytes: Int64
+    let fromZero: Bool
+
+    @State private var shown: Double?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        CountingBytes(bytes: shown ?? Double(bytes))
+            .onAppear {
+                guard fromZero, !reduceMotion, shown == nil else { return }
+                shown = 0
+                withAnimation(.smooth(duration: 0.9)) { shown = Double(bytes) }
+            }
+            .onChange(of: bytes) { _, new in
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.6)) { shown = Double(new) }
+            }
     }
 }
 

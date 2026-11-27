@@ -192,9 +192,11 @@ private struct SizeVisitor: DirectoryWalker.Visitor {
         self.progress = progress
     }
 
-    /// Publishes the bytes counted since the last call to the shared live counter.
+    /// Publishes the bytes counted since the last call to the shared live counter, and the
+    /// folder being read now.
     mutating func flushProgress() {
         guard let progress, pendingFiles > 0 else { return }
+        if let folder = stack.last?.path { progress.note(folder: folder) }
         progress.add(bytes: pendingBytes, files: pendingFiles)
         pendingBytes = 0
         pendingFiles = 0
@@ -279,11 +281,18 @@ private struct SizeVisitor: DirectoryWalker.Visitor {
 public final class ScanProgress: Sendable {
     private let byteCount = Atomic<Int64>(0)
     private let fileCount = Atomic<Int>(0)
+    private let folder = Mutex<String?>(nil)
 
     public init() {}
 
     public var bytes: Int64 { byteCount.load(ordering: .relaxed) }
     public var files: Int { fileCount.load(ordering: .relaxed) }
+    /// A folder one of the walks was reading at its last update; nil until the first one.
+    public var currentFolder: String? { folder.withLock { $0 } }
+
+    func note(folder path: String) {
+        folder.withLock { $0 = path }
+    }
 
     func add(bytes: Int64, files: Int) {
         byteCount.add(bytes, ordering: .relaxed)

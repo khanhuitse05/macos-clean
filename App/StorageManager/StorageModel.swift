@@ -42,6 +42,20 @@ final class StorageModel {
     /// Capacity of the disk the home folder is on, for the header bar.
     private(set) var volume: VolumeUsage?
 
+    /// Category ids in the order they're listed: found space largest first, then categories
+    /// not scanned yet (in their usual order), then the ones with nothing to clean. Updated
+    /// when a scan finishes, never by live updates, so rows don't jump while being read.
+    private(set) var displayOrder: [String] = []
+    /// Categories done out of all of them, while ``scanAll()`` runs.
+    private(set) var scanAllProgress: (done: Int, total: Int)?
+    /// Bumped to make a category row glow briefly: when its scan finishes, or when a
+    /// suggestion points at it.
+    private(set) var highlights: [String: Int] = [:]
+    /// When each category's last scan finished, so its total counts up only right after.
+    @ObservationIgnored private var revealedAt: [String: ContinuousClock.Instant] = [:]
+    /// The size each category had before the scan now running, to show how far along it is.
+    @ObservationIgnored private var expectedBytes: [String: Int64] = [:]
+
     /// Running totals of scans in flight, keyed by category. Not observed: views sample it
     /// a few times a second with a `TimelineView` while a category shows `.scanning`.
     @ObservationIgnored private var liveProgress: [String: ScanProgress] = [:]
@@ -93,9 +107,47 @@ final class StorageModel {
         .nanoseconds(Int64(clamping: clock_gettime_nsec_np(CLOCK_PROCESS_CPUTIME_ID)))
     }
 
+    init() {
+        displayOrder = categories.map(\.id)
+    }
+
     // MARK: Queries
 
     func phase(of category: CleanupCategory) -> Phase { phases[category.id] ?? .notScanned }
+
+    /// ``categories`` in ``displayOrder``.
+    var orderedCategories: [CleanupCategory] {
+        let byID = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0) })
+        return displayOrder.compactMap { byID[$0] }
+    }
+
+    /// The category's size before this scan began, if it had one.
+    func expectedBytes(of category: CleanupCategory) -> Int64? { expectedBytes[category.id] }
+
+    /// The folder a scan in flight is reading now, for the header.
+    var liveFolder: String? { liveProgress.values.lazy.compactMap(\.currentFolder).first }
+
+    /// True for a moment after the category's scan finished: its total counts up from zero.
+    func isJustRevealed(_ category: CleanupCategory) -> Bool {
+        guard let at = revealedAt[category.id] else { return false }
+        return ContinuousClock.now - at < .seconds(1.5)
+    }
+
+    /// Makes a category row glow briefly (a suggestion pointing at it).
+    func highlight(_ categoryID: String) {
+        highlights[categoryID, default: 0] += 1
+    }
+
+    /// Sorts ``displayOrder`` by found space. Animated by the caller.
+    private func reorder() {
+        let original = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($1.id, $0) })
+        func rank(_ id: String) -> (Int, Int64, Int) {
+            guard case .scanned(let result)? = phases[id] else { return (1, 0, original[id] ?? 0) }
+            return result.totalBytes > 0 ? (0, -result.totalBytes, original[id] ?? 0) : (2, 0, original[id] ?? 0)
+        }
+        let sorted = categories.map(\.id).sorted { rank($0) < rank($1) }
+        if sorted != displayOrder { displayOrder = sorted }
+    }
 
 
     func isRefreshing(_ category: CleanupCategory) -> Bool { refreshing.contains(category.id) }
@@ -258,11 +310,18 @@ final class StorageModel {
     /// Bytes measured so far by every scan in flight.
     var liveScannedBytes: Int64 { liveProgress.values.reduce(0) { $0 + $1.bytes } }
 
-    /// Reads the home volume's capacity off the main thread.
-    func refreshVolume() {
+    /// Reads the home volume's capacity off the main thread. With `settling`, reads it again
+    /// a few seconds later too: APFS reports space freed by emptying the Trash with a delay.
+    func refreshVolume(settling: Bool = false) {
         Task {
             let usage = await VolumeUsage.read()
             if usage != volume { Motion.animate(.smooth(duration: 0.6)) { volume = usage } }
+            guard settling else { return }
+            for delay in [2, 5] {
+                try? await Task.sleep(for: .seconds(delay))
+                let later = await VolumeUsage.read()
+                if later != volume { Motion.animate(.smooth(duration: 0.8)) { volume = later } }
+            }
         }
     }
 
@@ -271,7 +330,11 @@ final class StorageModel {
     func scanAll() async {
         guard !isScanningAll else { return }
         isScanningAll = true
-        defer { isScanningAll = false }
+        scanAllProgress = (0, categories.count)
+        defer {
+            isScanningAll = false
+            scanAllProgress = nil
+        }
         // A few at a time; ScanThrottle caps the walks running underneath.
         await withTaskGroup(of: Void.self) { group in
             var pending = categories[...]
@@ -280,12 +343,20 @@ final class StorageModel {
                 group.addTask { await self.scan(category) }
             }
             for _ in 0..<3 { next() }
-            for await _ in group { next() }
+            for await _ in group {
+                if let progress = scanAllProgress { scanAllProgress = (progress.done + 1, progress.total) }
+                next()
+            }
         }
     }
 
     func scan(_ category: CleanupCategory) async {
         if phase(of: category) == .scanning { return }
+        if case .scanned(let previous) = phase(of: category), previous.totalBytes > 0 {
+            expectedBytes[category.id] = previous.totalBytes
+        } else {
+            expectedBytes[category.id] = nil
+        }
         Motion.animate { phases[category.id] = .scanning }
         refreshing.remove(category.id)
         let progress = ScanProgress()
@@ -294,7 +365,13 @@ final class StorageModel {
         let result = await scanner.scan(category, progress: progress)
         liveProgress[category.id] = nil
         measuredSince[category.id] = since
-        Motion.animate { apply(result, for: category) }
+        expectedBytes[category.id] = nil
+        revealedAt[category.id] = .now
+        Motion.animate(.spring(duration: 0.55, bounce: 0.2)) {
+            apply(result, for: category)
+            reorder()
+        }
+        highlight(category.id)
     }
 
     /// Shows the results saved by the last run at once, then brings them up to date in the
@@ -318,6 +395,7 @@ final class StorageModel {
             if let since = saved.eventIDs[category.id] { measuredSince[category.id] = since }
             restored.append(category)
         }
+        reorder()
         let sameHistory = saved.historyID != nil && saved.historyID == Self.historyID
         let caughtUp = sameHistory ? restored.filter(canCatchUp) : []
         if let since = caughtUp.compactMap({ measuredSince[$0.id] }).min() {
@@ -428,7 +506,10 @@ final class StorageModel {
         let result = await Self.inBackground { [scanner] in await scanner.scan(category) }
         guard refreshing.remove(category.id) != nil, case .scanned = phase(of: category) else { return }
         measuredSince[category.id] = since
-        Motion.animate { apply(result, for: category) }
+        Motion.animate {
+            apply(result, for: category)
+            reorder()
+        }
     }
 
     /// Called when a folder row opens: shows prefetched children at once when the scan
