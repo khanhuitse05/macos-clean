@@ -205,8 +205,8 @@ struct DuplicatesView: View {
 
 // MARK: - Scanning
 
-/// The search before anything is found: a radar sweeping the disk, a live count, the folder
-/// being walked, and the three steps of the search.
+/// The search before anything is found: a radar sweeping the disk, a live count and the
+/// folder being walked.
 private struct ScanStageView: View {
     let model: DuplicatesModel
 
@@ -228,12 +228,6 @@ private struct ScanStageView: View {
                 .motionAnimation(.snappy, value: model.stageDone)
                 FolderTicker(path: model.stage == .walking ? model.currentFolder : "")
             }
-
-            ScanSteps(stage: model.stage, done: model.stageDone, total: model.stageTotal)
-                .frame(width: 420)
-
-            Button("Stop") { model.stop() }
-                .controlSize(.large)
         }
         .padding(24)
     }
@@ -247,6 +241,21 @@ private struct ScanStageView: View {
         case .walking: "files checked"
         case .comparingStarts: "look-alikes compared"
         case .comparingContents: "files compared"
+        }
+    }
+
+    static func title(_ stage: DuplicateEvent.Stage) -> LocalizedStringResource {
+        switch stage {
+        case .walking: "Find large files"
+        case .comparingStarts: "Compare first and last bytes"
+        case .comparingContents: "Compare byte for byte"
+        }
+    }
+
+    static func count(_ stage: DuplicateEvent.Stage, done: Int, total: Int) -> String {
+        switch stage {
+        case .walking: "\(done.formatted()) checked"
+        case .comparingStarts, .comparingContents: "\(done.formatted()) of \(total.formatted())"
         }
     }
 
@@ -269,9 +278,9 @@ private struct LiveScanHeader: View {
             ScanRadar(groups: model.groups, size: 46, showsIcon: false)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Text(ScanSteps.title(model.stage))
+                    Text(ScanStageView.title(model.stage))
                         .font(.headline)
-                    Text(ScanSteps.count(model.stage, done: model.stageDone, total: model.stageTotal))
+                    Text(ScanStageView.count(model.stage, done: model.stageDone, total: model.stageTotal))
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                         .contentTransition(.numericText())
@@ -415,110 +424,6 @@ private struct FolderTicker: View {
         guard !path.isEmpty else { return " " }
         let home = NSHomeDirectory()
         return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
-    }
-}
-
-/// The three steps of the search, joined by a line that fills as each one finishes.
-private struct ScanSteps: View {
-    let stage: DuplicateEvent.Stage
-    let done: Int
-    let total: Int
-
-    static let stages: [DuplicateEvent.Stage] = [.walking, .comparingStarts, .comparingContents]
-
-    private var current: Int { Self.stages.firstIndex(of: stage) ?? 0 }
-    private var fraction: Double { total > 0 ? min(1, Double(done) / Double(total)) : 0 }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            ForEach(Array(Self.stages.enumerated()), id: \.offset) { index, step in
-                VStack(spacing: 8) {
-                    marker(index)
-                    Text(Self.title(step))
-                        .font(.caption)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(index > current ? .tertiary : index == current ? .primary : .secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(width: 110)
-                if index < Self.stages.count - 1 {
-                    connector(filled: index < current ? 1 : index == current ? fraction : 0)
-                        .padding(.top, 13)
-                }
-            }
-        }
-        .motionAnimation(.snappy, value: current)
-    }
-
-    @ViewBuilder
-    private func marker(_ index: Int) -> some View {
-        ZStack {
-            if index < current {
-                Circle().fill(.tint)
-                Image(systemName: "checkmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white)
-                    .transition(.scale.combined(with: .opacity))
-            } else if index == current {
-                Circle().strokeBorder(.tint.opacity(0.25), lineWidth: 3)
-                Circle()
-                    .trim(from: 0, to: total > 0 ? max(0.04, fraction) : 0.25)
-                    .stroke(.tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .padding(1.5)
-                    .modifier(SpinWhenIndeterminate(active: total == 0))
-                Text("\(index + 1)").font(.caption.weight(.semibold)).foregroundStyle(.tint)
-            } else {
-                Circle().strokeBorder(.quaternary, lineWidth: 1.5)
-                Text("\(index + 1)").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-            }
-        }
-        .frame(width: 28, height: 28)
-    }
-
-    private func connector(filled: Double) -> some View {
-        Capsule()
-            .fill(.quaternary)
-            .frame(height: 3)
-            .overlay(alignment: .leading) {
-                GeometryReader { proxy in
-                    Capsule().fill(.tint).frame(width: proxy.size.width * filled)
-                }
-            }
-            .frame(maxWidth: .infinity)
-    }
-
-    static func title(_ stage: DuplicateEvent.Stage) -> LocalizedStringResource {
-        switch stage {
-        case .walking: "Find large files"
-        case .comparingStarts: "Compare first and last bytes"
-        case .comparingContents: "Compare byte for byte"
-        }
-    }
-
-    static func count(_ stage: DuplicateEvent.Stage, done: Int, total: Int) -> String {
-        switch stage {
-        case .walking: "\(done.formatted()) checked"
-        case .comparingStarts, .comparingContents: "\(done.formatted()) of \(total.formatted())"
-        }
-    }
-}
-
-/// Spins the arc while there's no total to measure against.
-private struct SpinWhenIndeterminate: ViewModifier {
-    let active: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func body(content: Content) -> some View {
-        if active, !reduceMotion {
-            TimelineView(.animation) { context in
-                content.rotationEffect(.degrees(
-                    context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) * 360
-                ))
-            }
-        } else {
-            content
-        }
     }
 }
 
