@@ -9,6 +9,7 @@ struct DuplicatesView: View {
 
     @State private var previewURL: URL?
     @State private var isChoosingFolder = false
+    @State private var showsManaged = false
     @State private var trashButton = FrameBox()
 
     var body: some View {
@@ -50,6 +51,12 @@ struct DuplicatesView: View {
         .quickLookPreview($previewURL)
     }
 
+    private var emptyDescription: String {
+        let scope = model.isHomeScope ? "your Home folder and iCloud Drive" : "your \(model.rootDisplayName) folder"
+        let library = model.isHomeScope ? " App data in Library is skipped too: choose it from the folder menu to search it." : ""
+        return "Look for identical files of \(model.minimumMB.formatted()) MB or more in \(scope). Files are compared by size, then by their first and last bytes, then byte for byte. Caches, app bundles, Photos libraries, folders that developer tools generate (like .dart_tool, .gradle, .idea or a project’s build folder) and excluded folders are skipped.\(library)"
+    }
+
     private var selectionDetail: String {
         if !model.fullyCheckedGroups.isEmpty {
             let count = model.fullyCheckedGroups.count
@@ -64,7 +71,7 @@ struct DuplicatesView: View {
             ContentUnavailableView {
                 Label("Find duplicate files", systemImage: "doc.on.doc")
             } description: {
-                Text("Look for identical files of \(model.minimumMB.formatted()) MB or more in your \(model.rootDisplayName) folder. Files are compared by size, then by their first and last bytes, then byte for byte. Caches, app bundles, Photos libraries, folders that developer tools generate (like .dart_tool, .gradle, .idea or a project’s build folder) and excluded folders are skipped.")
+                Text(emptyDescription)
             } actions: {
                 Button("Scan \(model.rootDisplayName)") { model.scan() }
                     .buttonStyle(.glassProminent)
@@ -90,13 +97,19 @@ struct DuplicatesView: View {
 
     private var list: some View {
         List {
-            ForEach(model.visibleGroups) { group in
+            ForEach(model.userGroups) { group in
+                groupSection(group)
+            }
+            if !model.managedGroups.isEmpty {
                 Section {
-                    ForEach(group.files) { file in
-                        DuplicateRow(file: file, model: model, trash: trash, onQuickLook: { previewURL = $0 })
-                    }
+                    EmptyView()
                 } header: {
-                    DuplicateGroupHeader(group: group, model: model)
+                    ManagedGroupsHeader(groups: model.managedGroups, isExpanded: $showsManaged)
+                }
+                if showsManaged || model.userGroups.isEmpty {
+                    ForEach(model.managedGroups) { group in
+                        groupSection(group)
+                    }
                 }
             }
         }
@@ -104,14 +117,30 @@ struct DuplicatesView: View {
         .scrollContentBackground(.hidden)
     }
 
+    private func groupSection(_ group: DuplicateGroup) -> some View {
+        Section {
+            ForEach(group.files) { file in
+                DuplicateRow(file: file, model: model, trash: trash, onQuickLook: { previewURL = $0 })
+            }
+        } header: {
+            DuplicateGroupHeader(group: group, model: model)
+        }
+    }
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
             Menu {
-                Button("Home Folder") {
-                    model.root = URL(fileURLWithPath: NSHomeDirectory())
+                Button("Home and iCloud Drive") {
+                    model.root = DuplicatesModel.homeURL
                     model.scan()
                 }
+                Button("App Data (Library)") {
+                    model.root = DuplicatesModel.libraryURL
+                    model.scan()
+                }
+                .help("Copies apps keep for themselves. Removing them can break an app, or the app makes them again.")
+                Divider()
                 Button("Choose Folder…") { isChoosingFolder = true }
             } label: {
                 Label(model.rootDisplayName, systemImage: "folder")
@@ -133,8 +162,8 @@ struct DuplicatesView: View {
                 Divider()
                 Button("Deselect All") { model.uncheckAll() }
             }
-            .disabled(model.visibleGroups.isEmpty)
-            .help("Tick every extra copy, keeping one of each file")
+            .disabled(model.userGroups.isEmpty)
+            .help("Tick every extra copy of your files, keeping one of each. Copies apps manage are left alone.")
 
             if model.isScanning {
                 Button("Stop", systemImage: "stop.fill") { model.stop() }
@@ -191,7 +220,8 @@ private struct DuplicateGroupHeader: View {
                 .help("Tick every copy except the newest")
             FileIcon(path: group.files.first?.path ?? "", isDirectory: false)
             VStack(alignment: .leading, spacing: 1) {
-                Text(group.name).font(.headline).lineLimit(1).truncationMode(.middle)
+                Text(group.displayName).font(.headline).lineLimit(1).truncationMode(.middle)
+                    .help(group.name)
                 Text("\(group.files.count) copies · \(group.fileBytes.fileSize) each")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -223,10 +253,13 @@ private struct DuplicateRow: View {
         HStack(spacing: 8) {
             TriStateCheckbox(state: model.isChecked(file) ? .on : .off) { model.toggle(file) }
             VStack(alignment: .leading, spacing: 1) {
-                Text(file.parentPath.abbreviatingHome)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-                    .help(file.path)
+                HStack(spacing: 6) {
+                    LocationBadge(location: FileLocation.of(file.path))
+                    Text(file.parentPath.abbreviatingHome)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .help(file.path)
+                }
                 if let modified = file.modified {
                     Text("Modified \(modified.formatted(.dateTime.year().month(.abbreviated).day().hour().minute()))")
                         .font(.caption)
@@ -246,6 +279,91 @@ private struct DuplicateRow: View {
             FileContextMenu(path: file.path, onQuickLook: onQuickLook) {
                 if let request = model.trashRequest(for: [file.path]) { trash.request(request, from: origin.rect) }
             }
+        }
+    }
+}
+
+/// The collapsible header above groups that only apps own.
+private struct ManagedGroupsHeader: View {
+    let groups: [DuplicateGroup]
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        Button {
+            Motion.animate { isExpanded.toggle() }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.right")
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .foregroundStyle(.secondary)
+                Image(systemName: "shippingbox")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Managed by Apps").font(.headline)
+                    Text("\(groups.count) \(groups.count == 1 ? "file" : "files") that apps keep for themselves. Removing a copy can break an app, or the app makes it again.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Text("\(groups.reduce(0) { $0 + $1.wastedBytes }.fileSize) extra")
+                    .font(.callout.weight(.medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 6)
+        .textCase(nil)
+    }
+}
+
+/// Where a copy lives, as a small label in front of its folder.
+private struct LocationBadge: View {
+    let location: FileLocation
+
+    var body: some View {
+        if let title = location.title {
+            Label(title, systemImage: location.symbol)
+                .font(.caption2.weight(.medium))
+                .labelStyle(.titleAndIcon)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .foregroundStyle(location == .appData ? Color.orange : Color.secondary)
+                .background(.quaternary.opacity(0.6), in: .capsule)
+                .fixedSize()
+        }
+    }
+}
+
+private extension FileLocation {
+    /// Nil where the folder path already says it all.
+    var title: LocalizedStringKey? {
+        switch self {
+        case .desktop: "Desktop"
+        case .documents: "Documents"
+        case .downloads: "Downloads"
+        case .pictures: "Pictures"
+        case .movies: "Movies"
+        case .music: "Music"
+        case .iCloudDrive: "iCloud Drive"
+        case .externalDrive: "External Drive"
+        case .appData: "App Data"
+        case .home, .other: nil
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .desktop: "menubar.dock.rectangle"
+        case .documents: "doc"
+        case .downloads: "arrow.down.circle"
+        case .pictures: "photo"
+        case .movies: "film"
+        case .music: "music.note"
+        case .iCloudDrive: "icloud"
+        case .externalDrive: "externaldrive"
+        case .appData: "shippingbox"
+        case .home, .other: "folder"
         }
     }
 }

@@ -11,11 +11,15 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     public let fileBytes: Int64
     /// Every copy, newest first. Sizes are allocated bytes on disk.
     public let files: [FileEntry]
+    /// Every copy is data an app keeps for itself (``FileLocation/appData``): removing one can
+    /// break the app, or the app writes it again.
+    public let isAppManaged: Bool
 
-    public init(id: String, fileBytes: Int64, files: [FileEntry]) {
+    public init(id: String, fileBytes: Int64, files: [FileEntry], isAppManaged: Bool = false) {
         self.id = id
         self.fileBytes = fileBytes
         self.files = files
+        self.isAppManaged = isAppManaged
     }
 
     /// Disk space the extra copies take: everything except the largest single copy.
@@ -24,6 +28,7 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     }
 
     public var name: String { files.first?.name ?? "" }
+    public var displayName: String { files.first?.displayName ?? "" }
 }
 
 public enum DuplicateEvent: Sendable, Equatable {
@@ -50,13 +55,28 @@ public enum DuplicateEvent: Sendable, Equatable {
 ///
 /// Skips what Large Files skips (caches, containers, the Trash, Photos libraries, `.git`,
 /// `node_modules`, app bundles), folders that developer tools generate (`.dart_tool`, `.gradle`,
-/// `.idea`, `.vscode`, a project's `build`/`target`, …) plus excluded folders. Hard links are one file. APFS clones of
-/// each other share their blocks, so deleting one frees nothing: they count as one copy.
+/// `.idea`, `.vscode`, a project's `build`/`target`, …), app `Caches` folders anywhere in a
+/// Library, plus excluded folders. `~/Library` is skipped unless a root is inside it: it holds
+/// app data, not the person's files. Hard links are one file. APFS clones of each other share
+/// their blocks, so deleting one frees nothing: they count as one copy.
 public struct DuplicateFinder: Sendable {
-    public let root: URL
+    /// Folders searched together; overlapping roots count each file once.
+    public let roots: [URL]
     public let minimumBytes: Int64
     public let maxDepth: Int
     public let exclusions: ExclusionList
+    /// The home folder whose `Library` is skipped and that ``FileLocation`` is measured from.
+    public let home: String
+
+    public var root: URL { roots[0] }
+
+    /// The home folder plus iCloud Drive (which lives in `~/Library` and would be skipped).
+    public static func userRoots(home: String = NSHomeDirectory()) -> [URL] {
+        var roots = [URL(fileURLWithPath: home)]
+        let iCloud = home + "/Library/Mobile Documents/com~apple~CloudDocs"
+        if FileManager.default.fileExists(atPath: iCloud) { roots.append(URL(fileURLWithPath: iCloud)) }
+        return roots
+    }
 
     /// Folders that developer tools and IDEs create and fill with copies of the same files.
     /// Duplicates in them aren't worth cleaning one by one: the tools recreate them.
@@ -88,11 +108,23 @@ public struct DuplicateFinder: Sendable {
     static let edgeBytes = 64 * 1024
     static let chunkBytes = 1024 * 1024
 
-    public init(root: URL, minimumBytes: Int64, maxDepth: Int = 12, exclusions: ExclusionList = .empty) {
-        self.root = root
+    public init(
+        roots: [URL], minimumBytes: Int64, maxDepth: Int = 12, exclusions: ExclusionList = .empty,
+        home: String = NSHomeDirectory()
+    ) {
+        precondition(!roots.isEmpty, "DuplicateFinder needs at least one root")
+        self.roots = roots
         self.minimumBytes = max(1, minimumBytes)
         self.maxDepth = maxDepth
         self.exclusions = exclusions
+        self.home = home
+    }
+
+    public init(
+        root: URL, minimumBytes: Int64, maxDepth: Int = 12, exclusions: ExclusionList = .empty,
+        home: String = NSHomeDirectory()
+    ) {
+        self.init(roots: [root], minimumBytes: minimumBytes, maxDepth: maxDepth, exclusions: exclusions, home: home)
     }
 
     /// Cancel the consuming task (or stop iterating) to stop.
@@ -158,7 +190,8 @@ public struct DuplicateFinder: Sendable {
                 let entries = copies
                     .sorted { $0.modified != $1.modified ? $0.modified > $1.modified : $0.path < $1.path }
                     .map { FileEntry(path: $0.path, sizeBytes: $0.allocated, isDirectory: false, modified: $0.modified) }
-                groups.append(DuplicateGroup(id: hash, fileBytes: copies[0].logical, files: entries))
+                let managed = entries.allSatisfy { FileLocation.of($0.path, home: home) == .appData }
+                groups.append(DuplicateGroup(id: hash, fileBytes: copies[0].logical, files: entries, isAppManaged: managed))
             }
         }
         return groups.sorted { $0.wastedBytes != $1.wastedBytes ? $0.wastedBytes > $1.wastedBytes : $0.id < $1.id }
@@ -204,18 +237,44 @@ public struct DuplicateFinder: Sendable {
 
     /// Regular files at or above the threshold, one per inode, with their logical size.
     private func collect(_ emit: @escaping @Sendable (DuplicateEvent) -> Void) async -> [Candidate] {
+        let shared = Shared()
+        for root in roots where !Task.isCancelled {
+            await walk(root, shared: shared, emit: emit)
+        }
+        emit(.progress(stage: .walking, done: shared.scanned.load(ordering: .relaxed), total: 0))
+
+        // Hard links (and files under overlapping roots): keep one path per inode. Logical
+        // sizes and the dataless check need lstat.
+        var seenInodes = Set<FileID>()
+        var result: [Candidate] = []
+        for found in shared.takeFound() where seenInodes.insert(FileID(device: found.device, inode: found.inode)).inserted {
+            guard !Task.isCancelled else { return [] }
+            var info = stat()
+            guard lstat(found.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+                  info.st_flags & DirectoryWalker.datalessFlag == 0, info.st_size > 0
+            else { continue }
+            result.append(Candidate(path: found.path, allocated: found.allocated, logical: Int64(info.st_size), modified: found.modified))
+        }
+        return result
+    }
+
+    private func walk(_ root: URL, shared: Shared, emit: @escaping @Sendable (DuplicateEvent) -> Void) async {
         var rootPath = root.standardizedFileURL.path
         while rootPath.count > 1, rootPath.hasSuffix("/") { rootPath.removeLast() }
         let rules = LargeFileScanner.skipSubstrings
             .filter { !(rootPath + "/").contains($0) }
             .map(LargeFileScanner.SkipRule.init)
         let exclusions = exclusions.applying(toRoot: rootPath)
-        let shared = Shared()
+        // ~/Library is app data; search it only when it was chosen (the root is inside it).
+        var homePath = home
+        while homePath.count > 1, homePath.hasSuffix("/") { homePath.removeLast() }
+        let library = homePath + "/Library"
+        let skipped: Set<String> = rootPath == library || rootPath.hasPrefix(library + "/") ? [] : [library]
 
         func makeVisitor(depthOffset: Int, split: Int?) -> Visitor {
             Visitor(
                 minimumBytes: minimumBytes, maxDepth: maxDepth, rules: rules, exclusions: exclusions,
-                depthOffset: depthOffset, splitDepth: split, shared: shared, emit: emit
+                skippedFolders: skipped, depthOffset: depthOffset, splitDepth: split, shared: shared, emit: emit
             )
         }
 
@@ -244,20 +303,6 @@ public struct DuplicateFinder: Sendable {
                 for await _ in group where next < work.count && !Task.isCancelled { addNext() }
             }
         }
-        emit(.progress(stage: .walking, done: shared.scanned.load(ordering: .relaxed), total: 0))
-
-        // Hard links: keep one path per inode. Logical sizes and the dataless check need lstat.
-        var seenInodes = Set<FileID>()
-        var result: [Candidate] = []
-        for found in shared.takeFound() where seenInodes.insert(FileID(device: found.device, inode: found.inode)).inserted {
-            guard !Task.isCancelled else { return [] }
-            var info = stat()
-            guard lstat(found.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
-                  info.st_flags & DirectoryWalker.datalessFlag == 0, info.st_size > 0
-            else { continue }
-            result.append(Candidate(path: found.path, allocated: found.allocated, logical: Int64(info.st_size), modified: found.modified))
-        }
-        return result
     }
 
     struct FileID: Hashable {
@@ -294,6 +339,7 @@ public struct DuplicateFinder: Sendable {
         let maxDepth: Int
         let rules: [LargeFileScanner.SkipRule]
         let exclusions: ExclusionList
+        let skippedFolders: Set<String>
         let depthOffset: Int
         let splitDepth: Int?
         let shared: Shared
@@ -336,9 +382,12 @@ public struct DuplicateFinder: Sendable {
                 let name = entry.name
                 if LargeFileScanner.skipNames.contains(name)
                     || rules.contains(where: { $0.matches(name: name, path: entry.path) })
-                    || DuplicateFinder.isDeveloperFolder(name: name, path: entry.path) {
+                    || DuplicateFinder.isDeveloperFolder(name: name, path: entry.path)
+                    || skippedFolders.contains(entry.path) {
                     return .skipChildren
                 }
+                // App caches outside ~/Library/Caches (`Application Support/Caches`, …).
+                if name == "Caches", entry.path.contains("/Library/") { return .skipChildren }
                 // Packages (apps, bundles, Photos libraries) are whole units, not loose files.
                 if name.hasSuffix(".app") || name.hasSuffix(".bundle") || name.hasSuffix(".framework") {
                     return .skipChildren

@@ -371,6 +371,74 @@ struct DuplicateFinderTests {
         #expect(stages.contains("walking"))
         #expect(stages.contains("comparingContents"))
     }
+
+    @Test func skipsUserLibraryUnlessChosen() async throws {
+        let tree = try TempTree()
+        let content = bytes(300_000, seed: 11)
+        try write(content, tree, "Documents/report.pdf")
+        try write(content, tree, "Downloads/report.pdf")
+        try write(content, tree, "Library/Application Support/Code/index.db")
+        try write(content, tree, "Library/Application Support/Cursor/index.db")
+        let home = tree.root.path
+
+        let fromHome = await DuplicateFinder(root: tree.root, minimumBytes: 100_000, home: home).find()
+        #expect(fromHome.count == 1)
+        #expect(fromHome.first?.files.count == 2)
+        #expect(fromHome.first?.isAppManaged == false)
+        #expect(fromHome.first?.files.allSatisfy { !$0.path.contains("/Library/") } == true)
+
+        let fromLibrary = await DuplicateFinder(root: tree.url("Library"), minimumBytes: 100_000, home: home).find()
+        #expect(fromLibrary.map(\.files.count) == [2])
+        #expect(fromLibrary.first?.isAppManaged == true)
+    }
+
+    @Test func skipsAppCachesInsideLibrary() async throws {
+        let tree = try TempTree()
+        let content = bytes(300_000, seed: 12)
+        try write(content, tree, "Library/Application Support/Caches/updater/pending/setup.zip")
+        try write(content, tree, "Library/Application Support/App/update/setup.zip")
+        try write(content, tree, "Documents/Caches/setup.zip") // a user folder named Caches is kept
+        let groups = await DuplicateFinder(root: tree.root, minimumBytes: 100_000, home: tree.root.path + "/elsewhere").find()
+        #expect(groups.map(\.files.count) == [2])
+        #expect(groups.first?.files.contains { $0.path.hasSuffix("Documents/Caches/setup.zip") } == true)
+    }
+
+    @Test func searchesSeveralRootsOnce() async throws {
+        let tree = try TempTree()
+        let content = bytes(300_000, seed: 13)
+        try write(content, tree, "a/x.bin")
+        try write(content, tree, "b/x.bin")
+        let separate = await DuplicateFinder(roots: [tree.url("a"), tree.url("b")], minimumBytes: 100_000).find()
+        #expect(separate.map(\.files.count) == [2])
+        // Overlapping roots don't turn one file into two copies.
+        let overlapping = await DuplicateFinder(roots: [tree.url("a"), tree.root], minimumBytes: 100_000).find()
+        #expect(overlapping.map(\.files.count) == [2])
+    }
+}
+
+@Suite("FileLocation")
+struct FileLocationTests {
+    let home = "/Users/me"
+
+    @Test func classifiesPaths() {
+        #expect(FileLocation.of("/Users/me/Downloads/a.zip", home: home) == .downloads)
+        #expect(FileLocation.of("/Users/me/Documents/x/a.pdf", home: home) == .documents)
+        #expect(FileLocation.of("/Users/me/Projects/a.bin", home: home) == .home)
+        #expect(FileLocation.of("/Users/me/Library/Application Support/Code/a.db", home: home) == .appData)
+        #expect(FileLocation.of("/Users/me/Library/Mobile Documents/com~apple~CloudDocs/a.pdf", home: home) == .iCloudDrive)
+        #expect(FileLocation.of("/Volumes/Backup/a.mov", home: home) == .externalDrive)
+        #expect(FileLocation.of("/Applications/Thing.app/a", home: home) == .appData)
+        #expect(FileLocation.of("/Users/meow/a.bin", home: home) == .other)
+    }
+
+    @Test func decodesPercentEncodedNames() {
+        let encoded = FileEntry(
+            path: "/tmp/file%3A%2F%2F%2FUsers%2Fme%2FLibrary%2Fupdate%2FSetup-26.3.zip", sizeBytes: 1, isDirectory: false
+        )
+        #expect(encoded.displayName == "Setup-26.3.zip")
+        #expect(FileEntry(path: "/tmp/100% done.txt", sizeBytes: 1, isDirectory: false).displayName == "100% done.txt")
+        #expect(FileEntry(path: "/tmp/My%20Song.mp3", sizeBytes: 1, isDirectory: false).displayName == "My Song.mp3")
+    }
 }
 
 // MARK: - N7 Suggestions

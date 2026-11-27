@@ -33,6 +33,10 @@ final class DuplicatesModel {
 
     private(set) var groups: [DuplicateGroup] = []
     private(set) var visibleGroups: [DuplicateGroup] = []
+    /// Visible groups with at least one copy among the person's own files.
+    private(set) var userGroups: [DuplicateGroup] = []
+    /// Visible groups whose copies all belong to apps (only found when ~/Library is searched).
+    private(set) var managedGroups: [DuplicateGroup] = []
     private(set) var isScanning = false
     private(set) var hasScanned = false
     private(set) var stage: DuplicateEvent.Stage = .walking
@@ -49,8 +53,18 @@ final class DuplicatesModel {
     private var scanTask: Task<Void, Never>?
     private var scanGeneration = 0
 
+    static let homeURL = URL(fileURLWithPath: NSHomeDirectory())
+    static let libraryURL = homeURL.appendingPathComponent("Library", isDirectory: true)
+
+    var isHomeScope: Bool { root.standardizedFileURL.path == Self.homeURL.standardizedFileURL.path }
+
     var rootDisplayName: String {
-        root.path == NSHomeDirectory() ? "Home" : root.lastPathComponent
+        isHomeScope ? "Home" : root.lastPathComponent
+    }
+
+    /// Home also searches iCloud Drive; ~/Library is skipped unless it is the chosen folder.
+    private var searchRoots: [URL] {
+        isHomeScope ? DuplicateFinder.userRoots() : [root]
     }
 
     var canTrash: Bool { !checked.isEmpty && fullyCheckedGroups.isEmpty }
@@ -70,7 +84,7 @@ final class DuplicatesModel {
         refreshVisible()
 
         let finder = DuplicateFinder(
-            root: root, minimumBytes: Int64(minimumMB) * 1_024 * 1_024, exclusions: ExclusionStore.shared.list
+            roots: searchRoots, minimumBytes: Int64(minimumMB) * 1_024 * 1_024, exclusions: ExclusionStore.shared.list
         )
         scanGeneration += 1
         let generation = scanGeneration
@@ -113,8 +127,12 @@ final class DuplicatesModel {
     private func refreshVisible() {
         let query = searchText.trimmingCharacters(in: .whitespaces)
         visibleGroups = query.isEmpty ? groups : groups.filter { group in
-            group.files.contains { $0.name.localizedStandardContains(query) || $0.path.localizedStandardContains(query) }
+            group.files.contains {
+                $0.displayName.localizedStandardContains(query) || $0.path.localizedStandardContains(query)
+            }
         }
+        userGroups = visibleGroups.filter { !$0.isAppManaged }
+        managedGroups = visibleGroups.filter(\.isAppManaged)
         wastedBytes = groups.reduce(0) { $0 + $1.wastedBytes }
     }
 
@@ -142,10 +160,11 @@ final class DuplicatesModel {
         }
     }
 
-    /// Ticks the extra copies in every visible group, keeping one per group by `rule`.
+    /// Ticks the extra copies in every visible group of the person's own files, keeping one per
+    /// group by `rule`. App-managed groups are left alone: they're ticked only by hand.
     func selectDuplicates(keeping rule: KeepRule) {
         var next = checked
-        for group in visibleGroups {
+        for group in userGroups {
             let keep = Self.keeper(of: group, rule: rule)
             for file in group.files {
                 if file.path == keep { next.remove(file.path) } else { next.insert(file.path) }
@@ -205,7 +224,7 @@ final class DuplicatesModel {
         groups = groups.compactMap { group in
             let kept = group.files.filter { !paths.contains($0.path) }
             guard kept.count > 1 else { return nil }
-            return kept.count == group.files.count ? group : DuplicateGroup(id: group.id, fileBytes: group.fileBytes, files: kept)
+            return kept.count == group.files.count ? group : DuplicateGroup(id: group.id, fileBytes: group.fileBytes, files: kept, isAppManaged: group.isAppManaged)
         }
         let live = Set(groups.flatMap(\.files).map(\.path))
         checked = checked.intersection(live)
