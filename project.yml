@@ -64,8 +64,8 @@ targets:
         PRODUCT_NAME: macOS Clean
         PRODUCT_MODULE_NAME: MacosClean
         PRODUCT_BUNDLE_IDENTIFIER: com.goldenowl.macos-clean
-        MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: "2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: N8L3QK9894
