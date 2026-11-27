@@ -22,12 +22,12 @@ enum AppSection: String, Hashable, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
-        case .storage: "internaldrive"
-        case .largeFiles: "doc.text.magnifyingglass"
-        case .duplicates: "doc.on.doc"
-        case .fileBrowser: "rectangle.split.3x1"
-        case .uninstaller: "xmark.app"
-        case .trash: "trash"
+        case .storage: "internaldrive.fill"
+        case .largeFiles: "scalemass.fill"
+        case .duplicates: "doc.on.doc.fill"
+        case .fileBrowser: "folder.fill"
+        case .uninstaller: "square.grid.2x2.fill"
+        case .trash: "trash.fill"
         }
     }
 }
@@ -158,17 +158,19 @@ struct ContentView: View {
             }
         }
         .task {
+            // Ask for Full Disk Access before touching the disk: without it, the first scan
+            // sets off macOS's per-folder prompts (Downloads, Desktop…) over the request.
+            await state.access.showWelcomeIfNeeded()
             state.trash.bin.start()
             // Start watching Applications right away so removals are noticed in any section.
             state.uninstaller.start()
+            // Last run's results appear at once; a background rescan then refreshes them.
+            await state.storage.restoreAndRefresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             // Full Disk Access may have been granted meanwhile.
             state.trash.bin.refresh()
             state.access.refresh()
-        }
-        .task {
-            await state.access.showWelcomeIfNeeded()
         }
         #if DEBUG
         .task {
@@ -185,10 +187,6 @@ struct ContentView: View {
             guard path != nil, let path = router.takePendingUninstall() else { return }
             Task { await state.reviewAppFromFinder(at: path) }
         }
-        .task {
-            // Last run's results appear at once; a background rescan then refreshes them.
-            await state.storage.restoreAndRefresh()
-        }
     }
 }
 
@@ -201,7 +199,11 @@ private struct Sidebar: View {
                 ForEach(AppSection.cleanUp) { section in
                     let scanning = state.isScanning(section)
                     HStack(spacing: 6) {
-                        Label(section.title, systemImage: section.systemImage)
+                        Label {
+                            Text(section.title)
+                        } icon: {
+                            SidebarIcon(systemImage: section.systemImage)
+                        }
                         Spacer(minLength: 4)
                         if scanning {
                             ProgressView()

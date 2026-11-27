@@ -358,16 +358,24 @@ struct DuplicateFinderTests {
         let content = bytes(300_000, seed: 9)
         try write(content, tree, "a.bin")
         try write(content, tree, "b.bin")
+        let other = bytes(500_000, seed: 10)
+        try write(other, tree, "c.bin")
+        try write(other, tree, "d/c.bin")
         var stages: Set<String> = []
+        var found: [DuplicateGroup] = []
         var finished: [DuplicateGroup]?
         for await event in DuplicateFinder(root: tree.root, minimumBytes: 100_000).scan() {
             switch event {
             case .progress(let stage, _, _): stages.insert("\(stage)")
+            case .found(let group): found.append(group)
             case .finished(let groups): finished = groups
-            case .denied: break
+            case .denied, .looking: break
             }
         }
-        #expect(finished?.count == 1)
+        #expect(finished?.count == 2)
+        // Each group streams before the end.
+        #expect(found.count == 2)
+        #expect(Set(found) == Set(finished ?? []))
         #expect(stages.contains("walking"))
         #expect(stages.contains("comparingContents"))
     }
@@ -403,6 +411,59 @@ struct DuplicateFinderTests {
         #expect(groups.first?.files.contains { $0.path.hasSuffix("Documents/Caches/setup.zip") } == true)
     }
 
+    @Test func skipsHiddenFoldersUnlessChosen() async throws {
+        let tree = try TempTree()
+        let content = bytes(300_000, seed: 14)
+        try write(content, tree, ".android/avd/Pixel.avd/sdcard.img")
+        try write(content, tree, ".android/avd/Small.avd/sdcard.img")
+        try write(content, tree, "Projects/app/.cache-like/x.bin")
+        try write(content, tree, "Projects/app/Results.xcresult/Data/x.bin")
+        let home = tree.root.path
+        #expect(await DuplicateFinder(root: tree.root, minimumBytes: 100_000, home: home).find().isEmpty)
+
+        let chosen = await DuplicateFinder(root: tree.url(".android"), minimumBytes: 100_000, home: home).find()
+        #expect(chosen.map(\.files.count) == [2])
+        #expect(chosen.first?.isAppManaged == true)
+    }
+
+    @Test(.enabled(if: GitIgnoredFiles.locateGit() != nil))
+    func skipsFilesGitIgnores() async throws {
+        let tree = try TempTree()
+        let content = bytes(300_000, seed: 15)
+        try write(content, tree, "web/app/images/hero.jpg")
+        try write(content, tree, "web/public/packs/static/hero-1a2b.jpg")
+        try write(content, tree, "web/public/uploads/5/hero.jpg")
+        try write(Data("public/packs/\n/public/uploads/*\n".utf8), tree, "web/.gitignore")
+        let git = Process()
+        git.executableURL = URL(fileURLWithPath: GitIgnoredFiles.locateGit()!)
+        git.arguments = ["init", "-q", tree.url("web").path]
+        try git.run()
+        git.waitUntilExit()
+
+        let groups = await DuplicateFinder(root: tree.root, minimumBytes: 100_000, home: "/nowhere").find()
+        #expect(groups.isEmpty)
+        let everything = await DuplicateFinder(root: tree.root, minimumBytes: 100_000, home: "/nowhere", respectsGitignore: false).find()
+        #expect(everything.map(\.files.count) == [3])
+    }
+
+    @Test func skipsGoModuleCacheUnityCachesAndPackages() async throws {
+        let tree = try TempTree()
+        let content = bytes(300_000, seed: 16)
+        try write(content, tree, "go/pkg/mod/golang.org/toolchain@1.24/src/a.syso")
+        try write(content, tree, "go/pkg/mod/golang.org/toolchain@1.25/src/a.syso")
+        try write(Data("x".utf8), tree, "go/pkg/mod/cache/download/list")
+        try write(content, tree, "Game/Library/Artifacts/a.bin")
+        try write(Data("m_EditorVersion: 6000".utf8), tree, "Game/ProjectSettings/ProjectVersion.txt")
+        try write(content, tree, "Movies/Trip.fcpbundle/Media/a.mov")
+        try write(content, tree, "Documents/keep.bin")
+        let groups = await DuplicateFinder(root: tree.root, minimumBytes: 100_000, home: "/nowhere").find()
+        #expect(groups.isEmpty)
+        // A folder named Library elsewhere, or a pkg/mod that isn't Go's cache, is searched.
+        try write(content, tree, "Notes/Library/keep.bin")
+        let found = await DuplicateFinder(root: tree.root, minimumBytes: 100_000, home: "/nowhere").find()
+        #expect(found.map(\.files.count) == [2])
+    }
+
     @Test func searchesSeveralRootsOnce() async throws {
         let tree = try TempTree()
         let content = bytes(300_000, seed: 13)
@@ -424,6 +485,7 @@ struct FileLocationTests {
         #expect(FileLocation.of("/Users/me/Downloads/a.zip", home: home) == .downloads)
         #expect(FileLocation.of("/Users/me/Documents/x/a.pdf", home: home) == .documents)
         #expect(FileLocation.of("/Users/me/Projects/a.bin", home: home) == .home)
+        #expect(FileLocation.of("/Users/me/.rbenv/versions/a.log", home: home) == .appData)
         #expect(FileLocation.of("/Users/me/Library/Application Support/Code/a.db", home: home) == .appData)
         #expect(FileLocation.of("/Users/me/Library/Mobile Documents/com~apple~CloudDocs/a.pdf", home: home) == .iCloudDrive)
         #expect(FileLocation.of("/Volumes/Backup/a.mov", home: home) == .externalDrive)

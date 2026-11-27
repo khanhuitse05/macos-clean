@@ -30,7 +30,11 @@ struct FileBrowserView: View {
             if case .success(let url) = result { model.root = url }
         }
         .quickLookPreview($previewURL)
-        .task { model.start() }
+        .task {
+            // Asks for Full Disk Access first, so macOS's per-folder prompts don't come instead.
+            await access.showWelcomeIfNeeded()
+            model.start()
+        }
     }
 
     private var subtitle: String {

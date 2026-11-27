@@ -43,6 +43,10 @@ public enum DuplicateEvent: Sendable, Equatable {
 
     /// `done`/`total` are files for the hashing stages; for walking, `done` is files seen.
     case progress(stage: Stage, done: Int, total: Int)
+    /// The folder being walked right now, a few times a second.
+    case looking(String)
+    /// A group confirmed while the search goes on. The biggest files are compared first.
+    case found(DuplicateGroup)
     /// A folder macOS refused to open (usually needs Full Disk Access).
     case denied(String)
     /// Largest waste first.
@@ -56,8 +60,10 @@ public enum DuplicateEvent: Sendable, Equatable {
 /// Skips what Large Files skips (caches, containers, the Trash, Photos libraries, `.git`,
 /// `node_modules`, app bundles), folders that developer tools generate (`.dart_tool`, `.gradle`,
 /// `.idea`, `.vscode`, a project's `build`/`target`, …), app `Caches` folders anywhere in a
-/// Library, plus excluded folders. `~/Library` is skipped unless a root is inside it: it holds
-/// app data, not the person's files. Hard links are one file. APFS clones of each other share
+/// Library, files a git repository ignores (build output, bundles, local uploads), the Go
+/// module cache, Unity's caches, plus excluded folders. `~/Library` and hidden folders (`~/.android`, `~/.rbenv`,
+/// `~/.gemini`, …) are skipped unless a root is inside them: they hold app and tool data, not the
+/// person's files. Hard links are one file. APFS clones of each other share
 /// their blocks, so deleting one frees nothing: they count as one copy.
 public struct DuplicateFinder: Sendable {
     /// Folders searched together; overlapping roots count each file once.
@@ -67,6 +73,8 @@ public struct DuplicateFinder: Sendable {
     public let exclusions: ExclusionList
     /// The home folder whose `Library` is skipped and that ``FileLocation`` is measured from.
     public let home: String
+    /// Leaves out files their git repository ignores.
+    public let respectsGitignore: Bool
 
     public var root: URL { roots[0] }
 
@@ -87,8 +95,19 @@ public struct DuplicateFinder: Sendable {
         ".build", ".swiftpm", ".pub-cache", ".fvm", ".cxx", ".externalNativeBuild", ".kotlin",
         // Python, Ruby, JS tooling
         ".venv", ".eggs", ".hypothesis", ".ipynb_checkpoints", ".yarn", ".pnpm-store", ".bundle",
+        "site-packages", "dist-packages", "anaconda3", "miniconda3", "miniforge3", "mambaforge",
         "Carthage",
     ])
+
+    /// Packages: one unit to Finder, made and read by an app. Deleting a file inside breaks it.
+    static let packageExtensions: Set<String> = [
+        "app", "bundle", "framework", "xcframework", "plugin", "appex", "kext", "dSYM",
+        "xcresult", "xcarchive", "docarchive", "fcpbundle", "imovielibrary", "logicx", "band",
+        "lrdata", "lrlibrary", "musiclibrary", "tvlibrary", "photoslibrary", "sparsebundle",
+        "vmwarevm", "pvm", "utm", "vbox",
+    ]
+
+    static let unityGeneratedNames: Set<String> = ["Library", "Temp", "Logs", "obj"]
 
     /// Generic names (`build`, `target`, …) that only mean generated output inside a project.
     static let projectOutputNames: Set<String> = DevProjectScanner.projectScoped
@@ -96,6 +115,16 @@ public struct DuplicateFinder: Sendable {
 
     static func isDeveloperFolder(name: String, path: String) -> Bool {
         if developerFolderNames.contains(name) || name.hasSuffix(".egg-info") { return true }
+        // Go's module cache (`$GOPATH/pkg/mod`): read-only copies of every module version.
+        if name == "mod", path.hasSuffix("/pkg/mod"),
+           FileManager.default.fileExists(atPath: path + "/cache/download") {
+            return true
+        }
+        // A Unity project's caches, next to its ProjectSettings.
+        if unityGeneratedNames.contains(name) {
+            let parent = (path as NSString).deletingLastPathComponent
+            return FileManager.default.fileExists(atPath: parent + "/ProjectSettings/ProjectVersion.txt")
+        }
         guard projectOutputNames.contains(name) else { return false }
         // `build` next to a pubspec.yaml / build.gradle / package.json / .git is generated output;
         // a `build` folder elsewhere may be the user's own.
@@ -110,9 +139,10 @@ public struct DuplicateFinder: Sendable {
 
     public init(
         roots: [URL], minimumBytes: Int64, maxDepth: Int = 12, exclusions: ExclusionList = .empty,
-        home: String = NSHomeDirectory()
+        home: String = NSHomeDirectory(), respectsGitignore: Bool = true
     ) {
         precondition(!roots.isEmpty, "DuplicateFinder needs at least one root")
+        self.respectsGitignore = respectsGitignore
         self.roots = roots
         self.minimumBytes = max(1, minimumBytes)
         self.maxDepth = maxDepth
@@ -122,9 +152,12 @@ public struct DuplicateFinder: Sendable {
 
     public init(
         root: URL, minimumBytes: Int64, maxDepth: Int = 12, exclusions: ExclusionList = .empty,
-        home: String = NSHomeDirectory()
+        home: String = NSHomeDirectory(), respectsGitignore: Bool = true
     ) {
-        self.init(roots: [root], minimumBytes: minimumBytes, maxDepth: maxDepth, exclusions: exclusions, home: home)
+        self.init(
+            roots: [root], minimumBytes: minimumBytes, maxDepth: maxDepth, exclusions: exclusions, home: home,
+            respectsGitignore: respectsGitignore
+        )
     }
 
     /// Cancel the consuming task (or stop iterating) to stop.
@@ -159,11 +192,20 @@ public struct DuplicateFinder: Sendable {
         guard !Task.isCancelled else { return [] }
 
         // Stage 1: same logical size.
-        let bySize = Dictionary(grouping: files, by: \.logical).values.filter { $0.count > 1 }
+        var bySize = Dictionary(grouping: files, by: \.logical).values.filter { $0.count > 1 }
+
+        // Files a repository ignores are tool output (builds, bundles, uploads), not the person's.
+        if respectsGitignore {
+            let ignored = await GitIgnoredFiles().ignored(bySize.flatMap { $0.map(\.path) })
+            guard !Task.isCancelled else { return [] }
+            if !ignored.isEmpty {
+                bySize = bySize.map { $0.filter { !ignored.contains($0.path) } }.filter { $0.count > 1 }
+            }
+        }
 
         // Stage 2: same start and end.
         let partialInput = bySize.flatMap { $0 }
-        let partial = await hashAll(partialInput, stage: .comparingStarts, emit: emit) { Self.edgeHash(of: $0) }
+        let partial = await hashAll(partialInput, stage: .comparingStarts, emit: emit, hash: { Self.edgeHash(of: $0) })
         guard !Task.isCancelled else { return [] }
         var survivors: [[Candidate]] = []
         for group in bySize {
@@ -171,36 +213,64 @@ public struct DuplicateFinder: Sendable {
             survivors += byEdge.values.filter { $0.count > 1 }
         }
 
-        // Stage 3: same content. Small files were read whole in stage 2.
-        let needsFull = survivors.flatMap { $0 }.filter { $0.logical > Int64(2 * Self.edgeBytes) }
-        let full = await hashAll(needsFull, stage: .comparingContents, emit: emit) { Self.fullHash(of: $0) }
-        guard !Task.isCancelled else { return [] }
-
+        // Stage 3: same content. Small files were read whole in stage 2. Biggest files first,
+        // each group's copies together, so groups are confirmed (and reported) as early as possible.
+        survivors.sort { $0[0].logical > $1[0].logical }
         var groups: [DuplicateGroup] = []
-        for group in survivors {
-            let keyed = Dictionary(grouping: group.compactMap { candidate -> (String, Candidate)? in
-                if candidate.logical <= Int64(2 * Self.edgeBytes) {
-                    return partial[candidate].map { ($0, candidate) }
-                }
-                return full[candidate].map { ($0, candidate) }
-            }, by: \.0)
-            for (hash, pairs) in keyed {
-                let copies = Self.collapsingClones(pairs.map(\.1))
-                guard copies.count > 1 else { continue }
-                let entries = copies
-                    .sorted { $0.modified != $1.modified ? $0.modified > $1.modified : $0.path < $1.path }
-                    .map { FileEntry(path: $0.path, sizeBytes: $0.allocated, isDirectory: false, modified: $0.modified) }
-                let managed = entries.allSatisfy { FileLocation.of($0.path, home: home) == .appData }
-                groups.append(DuplicateGroup(id: hash, fileBytes: copies[0].logical, files: entries, isAppManaged: managed))
-            }
+        var full: [Candidate: String] = [:]
+        var remaining: [Int] = []
+        var groupOf: [Candidate: Int] = [:]
+        var needsFull: [Candidate] = []
+        for (index, group) in survivors.enumerated() {
+            let big = group.filter { $0.logical > Int64(2 * Self.edgeBytes) }
+            remaining.append(big.count)
+            for candidate in big { groupOf[candidate] = index }
+            needsFull += big
         }
+        func confirm(_ index: Int) {
+            let found = makeGroups(survivors[index], partial: partial, full: full)
+            for group in found { emit(.found(group)) }
+            groups += found
+        }
+        for index in survivors.indices where remaining[index] == 0 { confirm(index) }
+        await hashAll(needsFull, stage: .comparingContents, emit: emit, hash: { Self.fullHash(of: $0) }) { candidate, value in
+            if let value { full[candidate] = value }
+            guard let index = groupOf[candidate] else { return }
+            remaining[index] -= 1
+            if remaining[index] == 0, !Task.isCancelled { confirm(index) }
+        }
+        guard !Task.isCancelled else { return [] }
         return groups.sorted { $0.wastedBytes != $1.wastedBytes ? $0.wastedBytes > $1.wastedBytes : $0.id < $1.id }
     }
 
-    /// Hashes candidates in parallel; files that can't be read are left out.
+    /// The groups of identical copies among candidates that share a size and edges.
+    private func makeGroups(_ group: [Candidate], partial: [Candidate: String], full: [Candidate: String]) -> [DuplicateGroup] {
+        let keyed = Dictionary(grouping: group.compactMap { candidate -> (String, Candidate)? in
+            if candidate.logical <= Int64(2 * Self.edgeBytes) {
+                return partial[candidate].map { ($0, candidate) }
+            }
+            return full[candidate].map { ($0, candidate) }
+        }, by: \.0)
+        var result: [DuplicateGroup] = []
+        for (hash, pairs) in keyed {
+            let copies = Self.collapsingClones(pairs.map(\.1))
+            guard copies.count > 1 else { continue }
+            let entries = copies
+                .sorted { $0.modified != $1.modified ? $0.modified > $1.modified : $0.path < $1.path }
+                .map { FileEntry(path: $0.path, sizeBytes: $0.allocated, isDirectory: false, modified: $0.modified) }
+            let managed = entries.allSatisfy { FileLocation.of($0.path, home: home) == .appData }
+            result.append(DuplicateGroup(id: hash, fileBytes: copies[0].logical, files: entries, isAppManaged: managed))
+        }
+        return result
+    }
+
+    /// Hashes candidates in parallel; files that can't be read are left out. `each` sees every
+    /// result as it arrives (`nil` when the file couldn't be read).
+    @discardableResult
     private func hashAll(
         _ candidates: [Candidate], stage: DuplicateEvent.Stage, emit: @escaping @Sendable (DuplicateEvent) -> Void,
-        hash: @escaping @Sendable (String) -> String?
+        hash: @escaping @Sendable (String) -> String?,
+        each: (Candidate, String?) -> Void = { _, _ in }
     ) async -> [Candidate: String] {
         guard !candidates.isEmpty else { return [:] }
         emit(.progress(stage: stage, done: 0, total: candidates.count))
@@ -223,6 +293,7 @@ public struct DuplicateFinder: Sendable {
             for _ in 0..<min(width, candidates.count) { addNext() }
             for await (candidate, value) in group {
                 if let value { results[candidate] = value }
+                each(candidate, value)
                 done += 1
                 if done & 0x3F == 0 || done == candidates.count {
                     emit(.progress(stage: stage, done: done, total: candidates.count))
@@ -270,11 +341,13 @@ public struct DuplicateFinder: Sendable {
         while homePath.count > 1, homePath.hasSuffix("/") { homePath.removeLast() }
         let library = homePath + "/Library"
         let skipped: Set<String> = rootPath == library || rootPath.hasPrefix(library + "/") ? [] : [library]
+        // Hidden folders are tool data; search them only when the root is inside one.
+        let skipsHidden = !rootPath.split(separator: "/").contains { $0.hasPrefix(".") }
 
         func makeVisitor(depthOffset: Int, split: Int?) -> Visitor {
             Visitor(
                 minimumBytes: minimumBytes, maxDepth: maxDepth, rules: rules, exclusions: exclusions,
-                skippedFolders: skipped, depthOffset: depthOffset, splitDepth: split, shared: shared, emit: emit
+                skippedFolders: skipped, skipsHidden: skipsHidden, depthOffset: depthOffset, splitDepth: split, shared: shared, emit: emit
             )
         }
 
@@ -340,6 +413,7 @@ public struct DuplicateFinder: Sendable {
         let rules: [LargeFileScanner.SkipRule]
         let exclusions: ExclusionList
         let skippedFolders: Set<String>
+        let skipsHidden: Bool
         let depthOffset: Int
         let splitDepth: Int?
         let shared: Shared
@@ -350,6 +424,7 @@ public struct DuplicateFinder: Sendable {
         var unreported = 0
         var visited = 0
         var lastFlush = DispatchTime.now().uptimeNanoseconds
+        var currentFolder = ""
 
         mutating func flush() {
             if !buffer.isEmpty {
@@ -359,10 +434,11 @@ public struct DuplicateFinder: Sendable {
             let total = shared.scanned.add(unreported, ordering: .relaxed).newValue
             unreported = 0
             emit(.progress(stage: .walking, done: total, total: 0))
+            if !currentFolder.isEmpty { emit(.looking(currentFolder)) }
             lastFlush = DispatchTime.now().uptimeNanoseconds
         }
 
-        func enter(_ path: String, depth: Int) {}
+        mutating func enter(_ path: String, depth: Int) { currentFolder = path }
         func leave(_ path: String, depth: Int) {}
 
         func denied(_ path: String, errno: Int32, depth: Int) {
@@ -383,13 +459,15 @@ public struct DuplicateFinder: Sendable {
                 if LargeFileScanner.skipNames.contains(name)
                     || rules.contains(where: { $0.matches(name: name, path: entry.path) })
                     || DuplicateFinder.isDeveloperFolder(name: name, path: entry.path)
-                    || skippedFolders.contains(entry.path) {
+                    || skippedFolders.contains(entry.path)
+                    || (skipsHidden && name.hasPrefix(".")) {
                     return .skipChildren
                 }
                 // App caches outside ~/Library/Caches (`Application Support/Caches`, …).
                 if name == "Caches", entry.path.contains("/Library/") { return .skipChildren }
-                // Packages (apps, bundles, Photos libraries) are whole units, not loose files.
-                if name.hasSuffix(".app") || name.hasSuffix(".bundle") || name.hasSuffix(".framework") {
+                // Packages (apps, bundles, media libraries, disk images) are whole units, not loose files.
+                if let dot = name.lastIndex(of: "."),
+                   DuplicateFinder.packageExtensions.contains(String(name[name.index(after: dot)...])) {
                     return .skipChildren
                 }
                 if !exclusions.isEmpty, exclusions.contains(folder: entry.path) { return .skipChildren }

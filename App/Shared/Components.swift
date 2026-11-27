@@ -2,6 +2,37 @@ import AppKit
 import MacosCleanCore
 import SwiftUI
 
+/// A white symbol on a colored rounded square, the way System Settings draws its sidebar.
+/// Keeps its own colors when the row is selected, so the tile reads the same either way.
+struct SidebarIcon: View {
+    let systemImage: String
+    var tint: Color = .gray
+    var size: CGFloat = 20
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+            .fill(tint.gradient)
+            .overlay {
+                RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+                    .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+            }
+            .overlay {
+                // Fitted into a fixed box, so wide and tall symbols come out the same size and
+                // centered on their drawn shape rather than on the font's baseline.
+                Image(systemName: systemImage)
+                    .resizable()
+                    .scaledToFit()
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.white)
+                    .symbolRenderingMode(.monochrome)
+                    .frame(width: size * 0.64, height: size * 0.64)
+            }
+            .frame(width: size, height: size)
+            .shadow(color: .black.opacity(0.12), radius: 0.5, y: 0.5)
+            .accessibilityHidden(true)
+    }
+}
+
 enum CheckState: Equatable {
     case off, on, mixed
 }

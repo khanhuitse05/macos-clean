@@ -44,6 +44,10 @@ final class DuplicatesModel {
     private(set) var stageTotal = 0
     private(set) var deniedPaths: [String] = []
     private(set) var wastedBytes: Int64 = 0
+    /// The folder the search is walking through, while it looks for files.
+    private(set) var currentFolder = ""
+    /// The group found most recently while scanning.
+    private(set) var latestFound: DuplicateGroup?
 
     private(set) var checked: Set<String> = [] { didSet { recomputeChecked() } }
     private(set) var checkedBytes: Int64 = 0
@@ -52,6 +56,10 @@ final class DuplicatesModel {
 
     private var scanTask: Task<Void, Never>?
     private var scanGeneration = 0
+    /// Groups found but not shown yet: they join the list a few times a second, not one by one.
+    private var pendingFound: [DuplicateGroup] = []
+    private var pendingFlush: Task<Void, Never>?
+    private var folderShownAt = ContinuousClock.now
 
     static let homeURL = URL(fileURLWithPath: NSHomeDirectory())
     static let libraryURL = homeURL.appendingPathComponent("Library", isDirectory: true)
@@ -79,6 +87,8 @@ final class DuplicatesModel {
         stage = .walking
         stageDone = 0
         stageTotal = 0
+        currentFolder = ""
+        latestFound = nil
         isScanning = true
         hasScanned = true
         refreshVisible()
@@ -96,9 +106,22 @@ final class DuplicatesModel {
                     self.stage = stage
                     stageDone = done
                     stageTotal = total
+                case .looking(let folder):
+                    // Several walkers report at once; show a new folder a couple of times a second.
+                    let now = ContinuousClock.now
+                    if now - folderShownAt >= .milliseconds(450) {
+                        folderShownAt = now
+                        currentFolder = folder
+                    }
+                case .found(let group):
+                    pendingFound.append(group)
+                    scheduleFoundFlush()
                 case .denied(let path):
                     deniedPaths.append(path)
                 case .finished(let found):
+                    pendingFlush?.cancel()
+                    pendingFlush = nil
+                    pendingFound = []
                     Motion.animate {
                         groups = found
                         refreshVisible()
@@ -112,7 +135,30 @@ final class DuplicatesModel {
     func stop() {
         scanTask?.cancel()
         scanTask = nil
+        pendingFlush?.cancel()
+        pendingFlush = nil
+        pendingFound = []
         isScanning = false
+    }
+
+    private func scheduleFoundFlush() {
+        guard pendingFlush == nil else { return }
+        pendingFlush = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard let self, !Task.isCancelled else { return }
+            pendingFlush = nil
+            let batch = pendingFound
+            pendingFound = []
+            guard !batch.isEmpty else { return }
+            Motion.animate(.snappy) {
+                for group in batch {
+                    let index = groups.firstIndex { $0.wastedBytes < group.wastedBytes } ?? groups.endIndex
+                    groups.insert(group, at: index)
+                }
+                latestFound = batch.last
+                refreshVisible()
+            }
+        }
     }
 
     /// Hides groups in folders the user just excluded (the chosen root itself never counts).

@@ -51,6 +51,8 @@ struct LargeFilesView: View {
         .quickLookPreview($previewURL)
         .task {
             // Scan on first visit; the model outlives the view, so returning keeps earlier results.
+            // Asks for Full Disk Access first, so macOS's per-folder prompts don't come instead.
+            await access.showWelcomeIfNeeded()
             if !model.hasScanned { model.scan() }
         }
     }

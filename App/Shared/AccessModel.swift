@@ -7,7 +7,15 @@ import SwiftUI
 @Observable
 final class AccessModel {
     private(set) var hasFullDiskAccess = true
-    var isShowingWelcome = false
+    var isShowingWelcome = false {
+        didSet {
+            guard !isShowingWelcome else { return }
+            let waiting = dismissWaiters
+            dismissWaiters.removeAll()
+            waiting.forEach { $0.resume() }
+        }
+    }
+    @ObservationIgnored private var dismissWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Set once the first-launch explainer has been shown; later launches only remind daily.
     private static let onboardedKey = "fdaOnboardingShown"
@@ -20,19 +28,40 @@ final class AccessModel {
     }
 
     /// Asks for Full Disk Access the first time the app opens, then at most once a day while
-    /// access is still missing. Waits a moment so the sheet attaches to a visible window.
+    /// access is still missing, and returns once the sheet is closed. Launch scans wait on
+    /// this, so the request comes before macOS's own per-folder prompts (Downloads, Desktop…),
+    /// which Full Disk Access makes unnecessary.
+    ///
+    /// Every caller waits on the same check, so sections that scan on first visit can call it
+    /// too; only the first call may show the sheet.
     func showWelcomeIfNeeded() async {
+        if launchCheck == nil {
+            launchCheck = Task { await self.runLaunchCheck() }
+        }
+        await launchCheck?.value
+    }
+
+    @ObservationIgnored private var launchCheck: Task<Void, Never>?
+
+    private func runLaunchCheck() async {
         refresh()
         guard !hasFullDiskAccess else { return }
         let defaults = UserDefaults.standard
         let isFirstLaunch = !defaults.bool(forKey: Self.onboardedKey)
         let last = defaults.double(forKey: Self.snoozeKey)
         guard isFirstLaunch || Date().timeIntervalSince1970 - last > Self.snoozeInterval else { return }
+        // Waits a moment so the sheet attaches to a visible window.
         try? await Task.sleep(for: .milliseconds(350))
-        guard !Task.isCancelled else { return }
         defaults.set(true, forKey: Self.onboardedKey)
         defaults.set(Date().timeIntervalSince1970, forKey: Self.snoozeKey)
         isShowingWelcome = true
+        await waitUntilWelcomeCloses()
+    }
+
+    /// Returns at once when the sheet isn't showing.
+    func waitUntilWelcomeCloses() async {
+        guard isShowingWelcome else { return }
+        await withCheckedContinuation { dismissWaiters.append($0) }
     }
 
     func openSettings() {
@@ -59,9 +88,11 @@ struct FullDiskAccessBanner: View {
                     Text("Its contents aren't included. Give macOS Clean Full Disk Access in System Settings, reopen the app, then scan again.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                        // No vertical fixedSize: measured at a tiny width it wraps a word per
+                        // line, which pushed the whole window's content taller than the window.
+                        .lineLimit(3)
                 }
-                Spacer(minLength: 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 if let onRetry {
                     Button("Scan Again", action: onRetry)
                 }

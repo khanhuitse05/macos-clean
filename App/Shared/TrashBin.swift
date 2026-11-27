@@ -240,7 +240,7 @@ struct TrashSidebarItem: View {
         let bin = coordinator.bin
         HStack(spacing: 8) {
             BinIcon(
-                isFull: bin.itemCount > 0, isEmptying: bin.isEmptying,
+                isEmptying: bin.isEmptying,
                 arrivals: bin.arrivals, emptied: bin.emptied
             )
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(TrashFlight.space)) } action: {
@@ -306,7 +306,6 @@ struct TrashSidebarItem: View {
 
 /// The bin itself: gulps when something lands, shakes while emptying, sparkles when done.
 private struct BinIcon: View {
-    let isFull: Bool
     let isEmptying: Bool
     let arrivals: Int
     let emptied: Int
@@ -314,10 +313,9 @@ private struct BinIcon: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Image(systemName: isFull ? "trash.fill" : "trash")
-            .font(.title3)
-            .foregroundStyle(isEmptying ? AnyShapeStyle(.red) : AnyShapeStyle(.tint))
-            .contentTransition(.symbolEffect(.replace))
+        // Same gray tile as the rows above (the size badge shows whether it's full); red while emptying.
+        SidebarIcon(systemImage: "trash.fill", tint: isEmptying ? .red : .gray)
+            .animation(.easeInOut(duration: 0.2), value: isEmptying)
             .symbolEffect(.wiggle, options: .repeat(.continuous), isActive: isEmptying)
             .keyframeAnimator(initialValue: Gulp(), trigger: reduceMotion ? 0 : arrivals) { content, gulp in
                 content

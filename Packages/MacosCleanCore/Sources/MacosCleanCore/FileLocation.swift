@@ -6,7 +6,8 @@ public enum FileLocation: String, Sendable, CaseIterable {
     case desktop, documents, downloads, pictures, movies, music
     case iCloudDrive
     case externalDrive
-    /// Files apps install and manage: `~/Library`, `/Applications`, `/Library`, system folders.
+    /// Files apps install and manage: `~/Library`, hidden folders in the home folder,
+    /// `/Applications`, `/Library`, system folders.
     case appData
     /// Elsewhere in the home folder (a projects folder, for example).
     case home
@@ -26,7 +27,8 @@ public enum FileLocation: String, Sendable, CaseIterable {
             case "Movies": return .movies
             case "Music": return .music
             case "Library": return rest.hasPrefix("Library/Mobile Documents/") ? .iCloudDrive : .appData
-            default: return .home
+            // Hidden folders (`~/.android`, `~/.rbenv`, …) belong to developer tools and apps.
+            default: return first.hasPrefix(".") ? .appData : .home
             }
         }
         if path.hasPrefix("/Volumes/") { return .externalDrive }

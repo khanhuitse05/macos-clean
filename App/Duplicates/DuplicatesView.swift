@@ -52,9 +52,10 @@ struct DuplicatesView: View {
     }
 
     private var emptyDescription: String {
-        let scope = model.isHomeScope ? "your Home folder and iCloud Drive" : "your \(model.rootDisplayName) folder"
-        let library = model.isHomeScope ? " App data in Library is skipped too: choose it from the folder menu to search it." : ""
-        return "Look for identical files of \(model.minimumMB.formatted()) MB or more in \(scope). Files are compared by size, then by their first and last bytes, then byte for byte. Caches, app bundles, Photos libraries, folders that developer tools generate (like .dart_tool, .gradle, .idea or a project’s build folder) and excluded folders are skipped.\(library)"
+        let size = "\(model.minimumMB.formatted()) MB"
+        return model.isHomeScope
+            ? "Find identical files of \(size) or more in your Home folder and iCloud Drive. App data, caches and developer folders are left out."
+            : "Find identical files of \(size) or more in \(model.rootDisplayName). Caches and developer folders are left out."
     }
 
     private var selectionDetail: String {
@@ -78,8 +79,9 @@ struct DuplicatesView: View {
                     .controlSize(.large)
             }
         } else if model.isScanning, model.groups.isEmpty {
-            ScanStageView(stage: model.stage, done: model.stageDone, total: model.stageTotal)
+            ScanStageView(model: model)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity)
         } else if model.visibleGroups.isEmpty {
             if model.searchText.isEmpty {
                 ContentUnavailableView(
@@ -96,6 +98,19 @@ struct DuplicatesView: View {
     }
 
     private var list: some View {
+        VStack(spacing: 0) {
+            if model.isScanning {
+                LiveScanHeader(model: model)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .motionTransition(.move(edge: .top).combined(with: .opacity))
+            }
+            groupList
+        }
+        .motionAnimation(.snappy, value: model.isScanning)
+    }
+
+    private var groupList: some View {
         List {
             ForEach(model.userGroups) { group in
                 groupSection(group)
@@ -181,23 +196,50 @@ struct DuplicatesView: View {
     }
 }
 
+// MARK: - Scanning
+
+/// The search before anything is found: a radar sweeping the disk, a live count, the folder
+/// being walked, and the three steps of the search.
 private struct ScanStageView: View {
-    let stage: DuplicateEvent.Stage
-    let done: Int
-    let total: Int
+    let model: DuplicatesModel
 
     var body: some View {
-        VStack(spacing: 12) {
-            if total > 0 {
-                ProgressView(value: Double(done), total: Double(total))
-                    .frame(width: 260)
-            } else {
-                ProgressView()
+        VStack(spacing: 28) {
+            ScanRadar(groups: model.groups, size: 196)
+
+            VStack(spacing: 8) {
+                Text("Searching \(model.isHomeScope ? "Home and iCloud Drive" : model.rootDisplayName)")
+                    .font(.title2.weight(.semibold))
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(ScanStageView.headline(model.stage, done: model.stageDone, total: model.stageTotal))
+                        .font(.system(.title, design: .rounded).weight(.semibold))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                    Text(ScanStageView.unit(model.stage))
+                        .foregroundStyle(.secondary)
+                }
+                .motionAnimation(.snappy, value: model.stageDone)
+                FolderTicker(path: model.stage == .walking ? model.currentFolder : "")
             }
-            Text(Self.describe(stage, done: done, total: total))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .contentTransition(.numericText())
+
+            ScanSteps(stage: model.stage, done: model.stageDone, total: model.stageTotal)
+                .frame(width: 420)
+
+            Button("Stop") { model.stop() }
+                .controlSize(.large)
+        }
+        .padding(24)
+    }
+
+    static func headline(_ stage: DuplicateEvent.Stage, done: Int, total: Int) -> String {
+        stage == .walking || total == 0 ? done.formatted() : "\(done.formatted()) of \(total.formatted())"
+    }
+
+    static func unit(_ stage: DuplicateEvent.Stage) -> LocalizedStringResource {
+        switch stage {
+        case .walking: "files checked"
+        case .comparingStarts: "look-alikes compared"
+        case .comparingContents: "files compared"
         }
     }
 
@@ -206,6 +248,269 @@ private struct ScanStageView: View {
         case .walking: "Looking through files… \(done.formatted()) checked"
         case .comparingStarts: "Comparing file starts… \(done.formatted()) of \(total.formatted())"
         case .comparingContents: "Comparing contents… \(done.formatted()) of \(total.formatted())"
+        }
+    }
+}
+
+/// Above the list while groups stream in: a small radar, the step, a progress bar and what
+/// has been found so far.
+private struct LiveScanHeader: View {
+    let model: DuplicatesModel
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ScanRadar(groups: model.groups, size: 46, showsIcon: false)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(ScanSteps.title(model.stage))
+                        .font(.headline)
+                    Text(ScanSteps.count(model.stage, done: model.stageDone, total: model.stageTotal))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                }
+                if model.stageTotal > 0 {
+                    ProgressView(value: Double(min(model.stageDone, model.stageTotal)), total: Double(model.stageTotal))
+                        .progressViewStyle(.linear)
+                } else {
+                    ProgressView().progressViewStyle(.linear)
+                }
+            }
+            Spacer(minLength: 16)
+            VStack(alignment: .trailing, spacing: 2) {
+                CountingBytes(bytes: Double(model.wastedBytes))
+                    .font(.system(.title3, design: .rounded).weight(.semibold))
+                Text("in \(model.groups.count.formatted()) \(model.groups.count == 1 ? "file" : "files") so far")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+            }
+            Button("Stop", systemImage: "stop.fill") { model.stop() }
+                .labelStyle(.iconOnly)
+                .buttonBorderShape(.circle)
+                .help("Stop searching. Copies found so far stay listed.")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .motionAnimation(.snappy, value: model.stageDone)
+        .motionAnimation(.snappy, value: model.groups.count)
+    }
+}
+
+/// A radar sweeping round, rings pulsing outward, and a blip for each group found.
+private struct ScanRadar: View {
+    let groups: [DuplicateGroup]
+    var size: CGFloat
+    var showsIcon = true
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Seconds per sweep.
+    private static let period = 2.6
+
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion)) { context in
+            let time = context.date.timeIntervalSinceReferenceDate
+            let sweep = reduceMotion ? 0 : (time / Self.period).truncatingRemainder(dividingBy: 1) * 360
+            ZStack {
+                // Guide rings.
+                ForEach([1.0, 0.66, 0.33], id: \.self) { scale in
+                    Circle()
+                        .strokeBorder(.tint.opacity(0.18), lineWidth: 1)
+                        .frame(width: size * scale, height: size * scale)
+                }
+                // Pulses travelling outward.
+                if !reduceMotion {
+                    ForEach(0..<3, id: \.self) { index in
+                        let phase = ((time / 2.4) + Double(index) / 3).truncatingRemainder(dividingBy: 1)
+                        Circle()
+                            .stroke(.tint.opacity(0.45 * (1 - phase)), lineWidth: 1.5)
+                            .frame(width: size, height: size)
+                            .scaleEffect(0.2 + 0.8 * phase)
+                    }
+                }
+                // The sweep: a fading wedge trailing the beam.
+                Circle()
+                    .fill(AngularGradient(
+                        stops: [
+                            .init(color: .accentColor.opacity(0), location: 0.70),
+                            .init(color: .accentColor.opacity(0.42), location: 0.995),
+                            .init(color: .accentColor.opacity(0), location: 1),
+                        ],
+                        center: .center
+                    ))
+                    .frame(width: size, height: size)
+                    .rotationEffect(.degrees(sweep - 90))
+                // Blips: one per group found, lit as the beam passes.
+                ForEach(groups.prefix(14)) { group in
+                    let spot = Self.spot(for: group.id)
+                    let behind = (sweep - spot.angle + 360).truncatingRemainder(dividingBy: 360)
+                    let glow = reduceMotion ? 1 : max(0.35, 1 - behind / 240)
+                    Circle()
+                        .fill(group.isAppManaged ? Color.secondary : Color.accentColor)
+                        .frame(width: max(4, size * 0.045), height: max(4, size * 0.045))
+                        .shadow(color: .accentColor.opacity(glow), radius: size * 0.03)
+                        .opacity(glow)
+                        .offset(
+                            x: cos(spot.angle * .pi / 180) * spot.radius * size / 2,
+                            y: sin(spot.angle * .pi / 180) * spot.radius * size / 2
+                        )
+                        .transition(.scale(scale: 3).combined(with: .opacity))
+                }
+                if showsIcon {
+                    Image(systemName: "doc.on.doc.fill")
+                        .font(.system(size: size * 0.17, weight: .medium))
+                        .foregroundStyle(.tint)
+                        .frame(width: size * 0.34, height: size * 0.34)
+                        .glassEffect(.regular, in: .circle)
+                }
+            }
+            .frame(width: size, height: size)
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// A stable place on the radar for a group: angle in degrees, radius as a fraction.
+    private static func spot(for id: String) -> (angle: Double, radius: Double) {
+        let bytes = Array(id.utf8)
+        let a = bytes.prefix(8).reduce(UInt64(14_695_981_039_346_656_037)) { ($0 ^ UInt64($1)) &* 1_099_511_628_211 }
+        let angle = Double(a % 360)
+        let radius = 0.42 + Double((a >> 16) % 48) / 100
+        return (angle, radius)
+    }
+}
+
+/// The folder being walked, sliding up as it changes.
+private struct FolderTicker: View {
+    let path: String
+
+    var body: some View {
+        ZStack {
+            Text(Self.display(path))
+                .font(.callout.monospaced())
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .id(path)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                    removal: .move(edge: .top).combined(with: .opacity)
+                ))
+        }
+        .frame(maxWidth: 460)
+        .frame(height: 18)
+        .clipped()
+        .motionAnimation(.smooth(duration: 0.3), value: path)
+    }
+
+    static func display(_ path: String) -> String {
+        guard !path.isEmpty else { return " " }
+        let home = NSHomeDirectory()
+        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
+    }
+}
+
+/// The three steps of the search, joined by a line that fills as each one finishes.
+private struct ScanSteps: View {
+    let stage: DuplicateEvent.Stage
+    let done: Int
+    let total: Int
+
+    static let stages: [DuplicateEvent.Stage] = [.walking, .comparingStarts, .comparingContents]
+
+    private var current: Int { Self.stages.firstIndex(of: stage) ?? 0 }
+    private var fraction: Double { total > 0 ? min(1, Double(done) / Double(total)) : 0 }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 0) {
+            ForEach(Array(Self.stages.enumerated()), id: \.offset) { index, step in
+                VStack(spacing: 8) {
+                    marker(index)
+                    Text(Self.title(step))
+                        .font(.caption)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(index > current ? .tertiary : index == current ? .primary : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(width: 110)
+                if index < Self.stages.count - 1 {
+                    connector(filled: index < current ? 1 : index == current ? fraction : 0)
+                        .padding(.top, 13)
+                }
+            }
+        }
+        .motionAnimation(.snappy, value: current)
+    }
+
+    @ViewBuilder
+    private func marker(_ index: Int) -> some View {
+        ZStack {
+            if index < current {
+                Circle().fill(.tint)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .transition(.scale.combined(with: .opacity))
+            } else if index == current {
+                Circle().strokeBorder(.tint.opacity(0.25), lineWidth: 3)
+                Circle()
+                    .trim(from: 0, to: total > 0 ? max(0.04, fraction) : 0.25)
+                    .stroke(.tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(1.5)
+                    .modifier(SpinWhenIndeterminate(active: total == 0))
+                Text("\(index + 1)").font(.caption.weight(.semibold)).foregroundStyle(.tint)
+            } else {
+                Circle().strokeBorder(.quaternary, lineWidth: 1.5)
+                Text("\(index + 1)").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+        }
+        .frame(width: 28, height: 28)
+    }
+
+    private func connector(filled: Double) -> some View {
+        Capsule()
+            .fill(.quaternary)
+            .frame(height: 3)
+            .overlay(alignment: .leading) {
+                GeometryReader { proxy in
+                    Capsule().fill(.tint).frame(width: proxy.size.width * filled)
+                }
+            }
+            .frame(maxWidth: .infinity)
+    }
+
+    static func title(_ stage: DuplicateEvent.Stage) -> LocalizedStringResource {
+        switch stage {
+        case .walking: "Find large files"
+        case .comparingStarts: "Compare first and last bytes"
+        case .comparingContents: "Compare byte for byte"
+        }
+    }
+
+    static func count(_ stage: DuplicateEvent.Stage, done: Int, total: Int) -> String {
+        switch stage {
+        case .walking: "\(done.formatted()) checked"
+        case .comparingStarts, .comparingContents: "\(done.formatted()) of \(total.formatted())"
+        }
+    }
+}
+
+/// Spins the arc while there's no total to measure against.
+private struct SpinWhenIndeterminate: ViewModifier {
+    let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if active, !reduceMotion {
+            TimelineView(.animation) { context in
+                content.rotationEffect(.degrees(
+                    context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) * 360
+                ))
+            }
+        } else {
+            content
         }
     }
 }
