@@ -856,37 +856,6 @@ class BubblEngine {
   }
 }
 
-// MARK: - All 26 Categories from CleanupCategory.swift
-
-const ALL_CATEGORIES = [
-  { id: 'user-caches', name: 'User Application Caches', safety: 'safe', group: 'apps', paths: ['~/Library/Caches'], details: 'Cached data from installed apps. Safe to delete; apps regenerate as needed.' },
-  { id: 'user-logs', name: 'User Logs', safety: 'safe', group: 'apps', paths: ['~/Library/Logs'], details: 'Application log files written by macOS apps. Safe to delete.' },
-  { id: 'trash', name: 'Trash', safety: 'safe', group: 'apps', paths: ['~/.Trash'], details: 'Files already in the Trash. Empty it, or pick items to delete for good.' },
-  { id: 'xcode-derived', name: 'Xcode DerivedData', safety: 'safe', group: 'apple', paths: ['~/Library/Developer/Xcode/DerivedData'], details: 'Xcode build intermediates and indexes. Often 20–50 GB. Rebuilds on next compile.' },
-  { id: 'xcode-archives', name: 'Xcode Archives', safety: 'caution', group: 'apple', paths: ['~/Library/Developer/Xcode/Archives'], details: 'Archived builds for distribution. Review before deleting — needed for symbolication of shipped releases.' },
-  { id: 'xcode-device-support', name: 'Xcode iOS DeviceSupport', safety: 'safe', group: 'apple', paths: ['~/Library/Developer/Xcode/iOS DeviceSupport', 'watchOS/tvOS/visionOS DeviceSupport'], details: 'Symbols copied from connected iPhones, iPads, Watches, TVs and Vision Pros. Copies again on connect.' },
-  { id: 'simulator-caches', name: 'iOS Simulator Caches', safety: 'safe', group: 'apple', paths: ['~/Library/Developer/CoreSimulator/Caches'], details: 'Cached data for the iOS Simulator. Safe to delete.' },
-  { id: 'simulators', name: 'Simulator Runtimes & Devices', safety: 'caution', group: 'apple', paths: ['simctl runtimes & devices'], details: 'Removed with Xcode’s simctl — cannot be restored from Trash. Re-download via Xcode › Settings › Components.' },
-  { id: 'xcode-previews', name: 'SwiftUI Previews Data', safety: 'safe', group: 'apple', paths: ['~/Library/Developer/Xcode/UserData/Previews'], details: 'Simulator devices and builds Xcode creates for SwiftUI previews. Recreated automatically.' },
-  { id: 'spm-cache', name: 'Swift Package Manager Cache', safety: 'safe', group: 'apple', paths: ['~/Library/Caches/org.swift.swiftpm', '~/Library/org.swift.swiftpm'], details: 'Resolved Swift packages. Safe to delete; re-resolves on next build.' },
-  { id: 'cocoapods-cache', name: 'CocoaPods Cache', safety: 'safe', group: 'apple', paths: ['~/Library/Caches/CocoaPods'], details: 'Cached CocoaPods downloads. Safe to delete.' },
-  { id: 'npm-cache', name: 'npm Cache', safety: 'safe', group: 'toolchain', paths: ['~/.npm'], details: 'npm download cache. Safe to delete (or run npm cache clean --force).' },
-  { id: 'yarn-cache', name: 'Yarn Cache', safety: 'safe', group: 'toolchain', paths: ['~/Library/Caches/Yarn', '~/.yarn/cache'], details: 'Yarn v1 global cache. Safe to delete.' },
-  { id: 'pnpm-store', name: 'pnpm Store', safety: 'safe', group: 'toolchain', paths: ['~/.pnpm-store', '~/Library/pnpm/store', '~/.local/share/pnpm/store'], details: 'pnpm content-addressable store. Safe to delete or prune.' },
-  { id: 'pip-cache', name: 'pip Cache', safety: 'safe', group: 'toolchain', paths: ['~/Library/Caches/pip', '~/.cache/pip'], details: 'Python pip download/wheel cache. Safe to delete.' },
-  { id: 'poetry-cache', name: 'Poetry Cache', safety: 'safe', group: 'toolchain', paths: ['~/Library/Caches/pypoetry'], details: 'Python Poetry cache. Safe to delete.' },
-  { id: 'homebrew-cache', name: 'Homebrew Cache', safety: 'safe', group: 'toolchain', paths: ['~/Library/Caches/Homebrew', '/Library/Caches/Homebrew'], details: 'Downloaded bottles and source archives. Safe to delete (or brew cleanup).' },
-  { id: 'gradle-cache', name: 'Gradle Cache', safety: 'safe', group: 'toolchain', paths: ['~/.gradle/caches'], details: 'Gradle build cache and downloaded dependencies. Safe to delete.' },
-  { id: 'cargo-cache', name: 'Cargo Registry Cache', safety: 'safe', group: 'toolchain', paths: ['~/.cargo/registry/cache', '~/.cargo/registry/src', '~/.cargo/git/db'], details: 'Rust crate download cache. Safe to delete.' },
-  { id: 'docker-data', name: 'Docker Desktop Data', safety: 'caution', group: 'toolchain', paths: ['~/Library/Containers/com.docker.docker/Data/vms', '~/Library/Group Containers/group.com.docker'], details: 'Docker images, containers and volumes. Use docker system prune -a for a safe clean.' },
-  { id: 'claude-data', name: 'Claude Caches & History', safety: 'caution', group: 'apps', paths: ['~/Library/Application Support/Claude/*', '~/.claude/projects', '~/.claude/todos'], details: 'Regenerable caches, logs, and local chat/session history for Claude Desktop & CLI. Keeps sign-in intact.' },
-  { id: 'ios-backups', name: 'iOS Device Backups', safety: 'caution', group: 'apple', paths: ['~/Library/Application Support/MobileSync/Backup'], details: 'Local backups of iPhones/iPads via Finder. Review carefully before deleting.' },
-  { id: 'ios-updates', name: 'iOS Software Updates', safety: 'safe', group: 'apple', paths: ['~/Library/iTunes/iPhone Software Updates', 'iPad/iPod Software Updates'], details: 'iPhone and iPad software files (.ipsw) Finder downloaded. Finder downloads again when needed.' },
-  { id: 'app-caches', name: 'App Caches (Popular Apps)', safety: 'safe', group: 'apps', paths: ['app_junk_db.json (Slack, Discord, VS Code, Chrome, Adobe, Steam)'], details: 'Cache folders popular apps hide outside ~/Library/Caches. Quit the app before cleaning; everything regenerates.' },
-  { id: 'dev-projects', name: 'Developer Project Leftovers', safety: 'caution', group: 'toolchain', paths: ['node_modules', 'target', '__pycache__', '.gradle', 'Pods', '.next', 'dist'], details: 'Regenerable build output and dependency folders inside your code projects. Review before deleting.' },
-  { id: 'system-downloads', name: 'Old Downloads', safety: 'caution', group: 'apps', paths: ['~/Downloads'], details: 'Items in ~/Downloads. Review carefully before deleting.' },
-];
-
 // MARK: - Interactive Demo State & Data
 
 function createInitialDemoState() {
@@ -894,15 +863,40 @@ function createInitialDemoState() {
     section: 'storage',
     fdaGranted: true,
     isScanning: false,
-    liveScanBytes: 0,
     expandedCats: new Set(['xcode-derived']),
     volume: { total: 500 * GB, used: 286.4 * GB, available: 213.6 * GB },
 
+    scanDone: null, // Set of category ids finished during a scan
+    justFinished: new Map(), // category id → when it finished, for the row glow
+    notOnMacOpen: new Set(),
     storageCategories: [
+      // System & Apps
       {
-        id: 'xcode-derived',
-        name: 'Xcode DerivedData',
-        safety: 'safe',
+        id: 'user-caches', group: 'systemApps', name: 'User Application Caches', safety: 'safe',
+        details: 'Cached data from installed apps. Safe to delete; apps regenerate as needed.',
+        children: [
+          { id: 'uc-1', name: 'Google (Chrome Cache)', path: '~/Library/Caches/Google', bytes: 3.2 * GB, selected: true },
+          { id: 'uc-2', name: 'com.spotify.client', path: '~/Library/Caches/com.spotify.client', bytes: 1.1 * GB, selected: true },
+        ],
+      },
+      {
+        id: 'app-caches', group: 'systemApps', name: 'App Caches (Popular Apps)', safety: 'safe',
+        details: 'Cache folders popular apps hide outside ~/Library/Caches. Quit the app before cleaning.',
+        children: [
+          { id: 'ac-1', name: 'Code Cache (VS Code)', path: '~/Library/Application Support/Code/Cache', bytes: 1.7 * GB, selected: true },
+          { id: 'ac-2', name: 'Slack & Discord GPUCache', path: '~/Library/Application Support/Slack/Cache', bytes: 1.2 * GB, selected: true },
+        ],
+      },
+      {
+        id: 'user-logs', group: 'systemApps', name: 'User Logs', safety: 'safe',
+        details: 'Application log files written by macOS apps. Safe to delete.',
+        children: [
+          { id: 'ul-1', name: 'DiagnosticReports & app logs', path: '~/Library/Logs', bytes: 640 * MB, selected: true },
+        ],
+      },
+      // Xcode & Simulators
+      {
+        id: 'xcode-derived', group: 'xcode', name: 'Xcode DerivedData', safety: 'safe',
         details: 'Xcode build intermediates and indexes. Rebuilds on next compile.',
         children: [
           { id: 'dd-1', name: 'macos-clean-fjkq9w', path: '~/Library/Developer/Xcode/DerivedData/macos-clean', bytes: 9.4 * GB, selected: true },
@@ -911,52 +905,105 @@ function createInitialDemoState() {
         ],
       },
       {
-        id: 'user-caches',
-        name: 'User Application Caches',
-        safety: 'safe',
-        details: 'Cached data from installed apps. Safe to delete; apps regenerate as needed.',
+        id: 'xcode-device-support', group: 'xcode', name: 'Xcode iOS DeviceSupport', safety: 'safe',
+        details: 'Symbols copied from connected devices. Copies again on connect.',
         children: [
-          { id: 'uc-1', name: 'Google (Chrome Cache)', path: '~/Library/Caches/Google', bytes: 3.2 * GB, selected: true },
-          { id: 'uc-2', name: 'Homebrew', path: '~/Library/Caches/Homebrew', bytes: 1.6 * GB, selected: true },
+          { id: 'ds-1', name: 'iPhone17,1 26.0 (23A341)', path: '~/Library/Developer/Xcode/iOS DeviceSupport/iPhone17,1 26.0', bytes: 4.2 * GB, selected: true },
         ],
       },
       {
-        id: 'app-caches',
-        name: 'App Caches (Popular Apps)',
-        safety: 'safe',
-        details: 'Electron & browser Code Caches (Slack, Discord, VS Code, Steam).',
+        id: 'simulators', group: 'xcode', name: 'Simulator Runtimes & Devices', safety: 'caution', isSimctl: true,
+        details: 'Removed with Xcode’s simctl — cannot be restored from Trash.',
         children: [
-          { id: 'ac-1', name: 'Code Cache (VS Code)', path: '~/Library/Application Support/Code/Cache', bytes: 1.7 * GB, selected: true },
-          { id: 'ac-2', name: 'Slack & Discord GPUCache', path: '~/Library/Application Support/Slack/Cache', bytes: 1.2 * GB, selected: true },
+          { id: 'sim-1', name: 'iOS 26.0 Simulator Runtime', path: 'simctl runtime delete iOS-26-0', bytes: 3.5 * GB, selected: false },
         ],
       },
+      // Developer Caches
       {
-        id: 'dev-projects',
-        name: 'Developer Project Leftovers',
-        safety: 'caution',
-        details: 'Regenerable node_modules, Rust target, and .next folders in ~/Projects.',
+        id: 'dev-projects', group: 'developer', name: 'Developer Project Leftovers', safety: 'caution',
+        details: 'Regenerable node_modules, Rust target and .next folders in your projects.',
         children: [
           { id: 'dp-1', name: 'target (Rust build)', path: '~/Projects/reference-clean/src-tauri/target', bytes: 4.9 * GB, selected: false },
           { id: 'dp-2', name: 'node_modules', path: '~/Projects/marketing-site/node_modules', bytes: 2.5 * GB, selected: false },
         ],
       },
       {
-        id: 'simulators',
-        name: 'Simulator Runtimes & Devices',
-        safety: 'caution',
-        details: 'Removed with Xcode’s simctl — cannot be restored from Trash.',
-        isSimctl: true,
+        id: 'npm-cache', group: 'developer', name: 'npm Cache', safety: 'safe',
+        details: 'npm download cache. Safe to delete.',
         children: [
-          { id: 'sim-1', name: 'iOS 26.0 Simulator Runtime', path: 'simctl runtime delete iOS-26-0', bytes: 3.5 * GB, selected: false },
+          { id: 'npm-1', name: '_cacache', path: '~/.npm/_cacache', bytes: 2.1 * GB, selected: true },
         ],
       },
       {
-        id: 'claude-data',
-        name: 'Claude Caches & History',
-        safety: 'caution',
+        id: 'homebrew-cache', group: 'developer', name: 'Homebrew Cache', safety: 'safe',
+        details: 'Downloaded bottles and source archives. Safe to delete.',
+        children: [
+          { id: 'hb-1', name: 'downloads', path: '~/Library/Caches/Homebrew/downloads', bytes: 1.6 * GB, selected: true },
+        ],
+      },
+      // AI & Containers
+      {
+        id: 'claude-data', group: 'aiContainers', name: 'Claude Caches & History', safety: 'caution',
         details: 'Regenerable caches and local session history for Claude Desktop & CLI.',
         children: [
           { id: 'cl-1', name: 'Claude Desktop GPU & WebCache', path: '~/Library/Application Support/Claude/Cache', bytes: 1.2 * GB, selected: false },
+        ],
+      },
+      {
+        id: 'local-ai-logs', group: 'aiContainers', name: 'Ollama & LM Studio Logs', safety: 'safe',
+        details: 'Server logs from local AI tools. Safe to delete.',
+        children: [
+          { id: 'ol-1', name: 'logs', path: '~/.ollama/logs', bytes: 380 * MB, selected: true },
+        ],
+      },
+      // Personal Files
+      {
+        id: 'ios-backups', group: 'personal', name: 'iOS Device Backups', safety: 'caution',
+        details: 'Local backups of iPhones and iPads made by Finder. Review before deleting.',
+        children: [
+          { id: 'ib-1', name: 'iPhone — Oct 2, 2026', path: '~/Library/Application Support/MobileSync/Backup/00008130-…', bytes: 6.8 * GB, selected: false },
+        ],
+      },
+      {
+        id: 'system-downloads', group: 'personal', name: 'Old Downloads', safety: 'caution',
+        details: 'Items in ~/Downloads you haven’t opened in months. Review before deleting.',
+        children: [
+          { id: 'od-1', name: 'Figma-Installer.dmg', path: '~/Downloads/Figma-Installer.dmg', bytes: 410 * MB, selected: false },
+          { id: 'od-2', name: 'zoom.pkg', path: '~/Downloads/zoom.pkg', bytes: 180 * MB, selected: false },
+        ],
+      },
+    ],
+
+    dupMinMB: 100,
+    dupScanning: false,
+    dupGroups: [
+      {
+        id: 'dg-1', name: 'Onboarding-Final.mov', kind: 'MOV', each: 1.8 * GB,
+        files: [
+          { id: 'df-1', path: '~/Movies/Onboarding-Final.mov', modified: 'Nov 2, 2026', checked: false },
+          { id: 'df-2', path: '~/Desktop/Onboarding-Final copy.mov', modified: 'Oct 28, 2026', checked: false },
+          { id: 'df-3', path: '~/Downloads/Onboarding-Final (1).mov', modified: 'Oct 27, 2026', checked: false },
+        ],
+      },
+      {
+        id: 'dg-2', name: 'Ubuntu-ARM64-Base.iso', kind: 'ISO', each: 2.4 * GB,
+        files: [
+          { id: 'df-4', path: '~/Downloads/ISOs/Ubuntu-ARM64-Base.iso', modified: 'Oct 28, 2026', checked: false },
+          { id: 'df-5', path: '~/VMs/Ubuntu-ARM64-Base.iso', modified: 'Sep 14, 2026', checked: false },
+        ],
+      },
+      {
+        id: 'dg-3', name: 'Brand-Assets-2026.zip', kind: 'ZIP', each: 640 * MB,
+        files: [
+          { id: 'df-6', path: '~/Documents/Brand/Brand-Assets-2026.zip', modified: 'Aug 3, 2026', checked: false },
+          { id: 'df-7', path: '~/Downloads/Brand-Assets-2026.zip', modified: 'Aug 3, 2026', checked: false },
+        ],
+      },
+      {
+        id: 'dg-4', name: 'podcast-ep12-raw.wav', kind: 'WAV', each: 310 * MB,
+        files: [
+          { id: 'df-8', path: '~/Music/Podcast/podcast-ep12-raw.wav', modified: 'Sep 30, 2026', checked: false },
+          { id: 'df-9', path: '~/Desktop/Podcast-Master.wav', modified: 'Sep 30, 2026', checked: false },
         ],
       },
     ],
@@ -1061,6 +1108,44 @@ function createInitialDemoState() {
   };
 }
 
+// Storage Manager groups, as in CleanupCategory.Group. Personal Files always sorts last.
+const DEMO_GROUPS = [
+  { id: 'systemApps', title: 'System & Apps', color: '#2dd4bf',
+    icon: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="12" rx="2"/><path d="M2.5 7.5h15"/></svg>' },
+  { id: 'xcode', title: 'Xcode & Simulators', color: '#a78bfa',
+    icon: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 16l7-7M9.5 4.5l3-1.5 4.5 4.5-1.5 3-2-2-2 2-2-2 2-2z"/></svg>' },
+  { id: 'developer', title: 'Developer Caches', color: '#38bdf8',
+    icon: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M10 2.8l6.5 3.5v7.4L10 17.2l-6.5-3.5V6.3z"/><path d="M3.5 6.3L10 9.8l6.5-3.5M10 9.8v7.4"/></svg>' },
+  { id: 'aiContainers', title: 'AI & Containers', color: '#fb7185',
+    icon: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="5" width="10" height="10" rx="2"/><path d="M8 2.5v2.5M12 2.5v2.5M8 15v2.5M12 15v2.5M2.5 8h2.5M2.5 12h2.5M15 8h2.5M15 12h2.5"/></svg>' },
+  { id: 'personal', title: 'Personal Files', color: '#fbbf24',
+    icon: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="14" height="14" rx="3"/><circle cx="10" cy="8.5" r="2.3"/><path d="M5.8 15.5c.8-2 2.4-3 4.2-3s3.4 1 4.2 3"/></svg>' },
+];
+
+// Categories whose tools aren't on this demo Mac, folded into "Not on this Mac (N)".
+const NOT_ON_THIS_MAC = {
+  xcode: ['SwiftUI Previews Data', 'CocoaPods Cache'],
+  developer: ['Yarn', 'pnpm', 'Bun', 'Deno', 'pip', 'Poetry', 'uv', 'Gradle', 'Maven', 'NuGet', 'Cargo', 'Go Build', 'Dart & Flutter Pub', 'Electron & node-gyp', 'Playwright & Puppeteer'],
+  aiContainers: ['Docker Desktop Data', 'Ollama & LM Studio History'],
+  personal: ['Downloaded AI Models', 'Xcode Archives'],
+};
+
+const SECTION_ICONS = {
+  storage: '<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="14" height="10" rx="2"/><path d="M3 11.5h14M13.5 13.5h1"/></svg>',
+  fileBrowser: '<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="12" rx="2"/><path d="M7.5 4v12M12.5 4v12"/></svg>',
+  largeFiles: '<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3.5h6.5L15 7v9.5a1 1 0 01-1 1H5a1 1 0 01-1-1v-12a1 1 0 011-1z"/><circle cx="10.5" cy="11.5" r="2.2"/><path d="M12.2 13.2l1.6 1.6"/></svg>',
+  duplicates: '<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="9" height="11" rx="1.6"/><path d="M8 6V4.6A1.6 1.6 0 019.6 3h5.8A1.6 1.6 0 0117 4.6v7.8a1.6 1.6 0 01-1.6 1.6H12"/></svg>',
+  uninstaller: '<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="3.5" width="13" height="13" rx="3"/><path d="M7.5 7.5l5 5M12.5 7.5l-5 5"/></svg>',
+};
+
+const SECTION_TITLES = {
+  storage: 'Storage Manager',
+  fileBrowser: 'File Browser',
+  largeFiles: 'Large Files',
+  duplicates: 'Duplicates',
+  uninstaller: 'Uninstaller',
+};
+
 const BROWSER_TREE = {
   '~': [
     { name: 'Applications', path: '~/Applications', isDir: true, bytes: 18.4 * GB },
@@ -1106,7 +1191,9 @@ const BROWSER_TREE = {
 document.addEventListener('DOMContentLoaded', () => {
   initThemeToggle();
   initCopyButtons();
-  initCategoryExplorer();
+  initToolShowcase();
+  initReveal();
+  initScanViz();
 
   const heroCanvas = document.getElementById('hero-bubbl-canvas');
   const heroBubbl = new BubblEngine(heroCanvas, {
@@ -1170,35 +1257,195 @@ function initCopyButtons() {
   });
 }
 
-// MARK: - "What it cleans" chip cloud
+// MARK: - Feature showcase (tool tabs + animated stage)
 
-function initCategoryExplorer() {
-  const grid = document.getElementById('categories-grid');
-  const filterBtns = document.querySelectorAll('#category-filters .filter-pill');
-  if (!grid) return;
-  let activeFilter = 'all';
+function initToolShowcase() {
+  const root = document.getElementById('tool-showcase');
+  if (!root) return;
+  const tabs = [...root.querySelectorAll('.tool-tab')];
+  const stages = tabs.map((t) => document.getElementById(t.getAttribute('aria-controls')));
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let current = 0;
+  let inView = false;
 
-  const render = () => {
-    const filtered = ALL_CATEGORIES.filter(
-      (cat) => activeFilter === 'all' || cat.group === activeFilter
-    );
-    grid.innerHTML = filtered
-      .map(
-        (cat) => `<span class="cat-chip" title="${escapeHtml(cat.details)}"><i class="dot-${cat.safety}"></i>${escapeHtml(cat.name)}</span>`
-      )
-      .join('');
+  const countUp = (stage) => {
+    stage.querySelectorAll('[data-count]').forEach((el) => {
+      const target = parseFloat(el.dataset.count);
+      if (reduceMotion) { el.textContent = target.toFixed(1); return; }
+      const start = performance.now();
+      const dur = 900;
+      const tick = (now) => {
+        const t = Math.min(1, (now - start) / dur);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = (target * eased).toFixed(1);
+        if (t < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
   };
 
-  filterBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      filterBtns.forEach((b) => b.classList.remove('is-active'));
-      btn.classList.add('is-active');
-      activeFilter = btn.dataset.filter;
-      render();
+  const select = (index, { focus = false } = {}) => {
+    current = (index + tabs.length) % tabs.length;
+    tabs.forEach((tab, i) => {
+      const on = i === current;
+      tab.classList.toggle('is-active', on);
+      tab.setAttribute('aria-selected', String(on));
+      tab.tabIndex = on ? 0 : -1;
+      const was = stages[i].classList.contains('is-active');
+      stages[i].classList.toggle('is-active', on);
+      stages[i].hidden = !on;
+      if (on) stages[i].dispatchEvent(new CustomEvent('stage:show'));
+      else if (was) stages[i].dispatchEvent(new CustomEvent('stage:hide'));
+      // Restart the progress bar animation on the newly active tab.
+      const bar = tab.querySelector('.tool-progress i');
+      if (bar) { bar.style.animation = 'none'; void bar.offsetWidth; bar.style.animation = ''; }
+    });
+    countUp(stages[current]);
+    if (focus) tabs[current].focus();
+    const active = tabs[current];
+    const strip = active.parentElement;
+    if (strip.scrollWidth > strip.clientWidth) {
+      const left = active.getBoundingClientRect().left - strip.getBoundingClientRect().left + strip.scrollLeft - 16;
+      strip.scrollTo({ left: Math.max(0, left), behavior: reduceMotion ? 'auto' : 'smooth' });
+    }
+  };
+
+  tabs.forEach((tab, i) => {
+    tab.addEventListener('click', () => select(i));
+    tab.addEventListener('keydown', (e) => {
+      const keys = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 };
+      if (!(e.key in keys)) return;
+      e.preventDefault();
+      select(current + keys[e.key], { focus: true });
+    });
+    // When the progress bar fills, move on to the next tool.
+    tab.querySelector('.tool-progress i')?.addEventListener('animationend', () => {
+      if (i === current) select(current + 1);
     });
   });
 
-  render();
+  if (reduceMotion) {
+    select(0);
+    return;
+  }
+
+  const setPlaying = () => root.classList.toggle('is-playing', inView);
+  root.addEventListener('pointerenter', () => root.classList.add('is-paused'));
+  root.addEventListener('pointerleave', () => root.classList.remove('is-paused'));
+  root.addEventListener('focusin', () => root.classList.add('is-paused'));
+  root.addEventListener('focusout', () => root.classList.remove('is-paused'));
+
+  let started = false;
+  new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      inView = entry.isIntersecting;
+      if (inView && !started) { started = true; select(0); }
+      setPlaying();
+    });
+  }, { threshold: 0.35 }).observe(root);
+}
+
+// MARK: - Scroll reveal + tile spotlight
+
+function initReveal() {
+  const items = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window)) {
+    items.forEach((el) => el.classList.add('is-visible'));
+    return;
+  }
+  // Stagger siblings that share a parent.
+  items.forEach((el) => {
+    const siblings = [...el.parentElement.children].filter((c) => c.classList.contains('reveal'));
+    const index = siblings.indexOf(el);
+    if (siblings.length > 1) el.style.setProperty('--delay', `${Math.min(index, 6) * 0.07}s`);
+  });
+  const io = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add('is-visible');
+        io.unobserve(entry.target);
+      });
+    },
+    { threshold: 0.15, rootMargin: '0px 0px -40px 0px' }
+  );
+  items.forEach((el) => io.observe(el));
+
+}
+
+// MARK: - Speed section: looping scan animation
+
+function initScanViz() {
+  const root = document.getElementById('scan-viz');
+  const grid = document.getElementById('sv-grid');
+  if (!root || !grid) return;
+
+  const status = root.querySelector('.sv-status');
+  const statusText = document.getElementById('sv-status-text');
+  const foundEl = document.getElementById('sv-found');
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const COUNT = 80;
+  const TOTAL_GB = 58.2;
+  const FOLDERS_PER_CELL = 157;
+  // Cells where junk turns up, with the share of the total each one adds.
+  const JUNK = { 6: 0.08, 13: 0.31, 22: 0.05, 29: 0.12, 41: 0.17, 47: 0.04, 58: 0.13, 66: 0.06, 73: 0.04 };
+  grid.innerHTML = Array.from({ length: COUNT }, () => '<span class="sv-cell"></span>').join('');
+  const cells = [...grid.children];
+
+  let timers = [];
+  let inView = false;
+  const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+  const clearTimers = () => { timers.forEach(clearTimeout); timers = []; };
+
+  const finish = () => {
+    status.classList.add('is-done');
+    statusText.textContent = `Scan complete · ${(COUNT * FOLDERS_PER_CELL).toLocaleString('en-US')} folders`;
+    foundEl.textContent = TOTAL_GB.toFixed(1);
+  };
+
+  if (reduceMotion) {
+    cells.forEach((c, i) => c.classList.add(i in JUNK ? 'is-junk' : 'is-done'));
+    finish();
+    return;
+  }
+
+  const play = () => {
+    clearTimers();
+    root.classList.remove('is-fading');
+    status.classList.remove('is-done');
+    cells.forEach((c) => { c.className = 'sv-cell'; });
+    foundEl.textContent = '0.0';
+    statusText.textContent = 'Scanning…';
+
+    const step = 30;
+    let found = 0;
+    cells.forEach((c, i) => {
+      later(() => {
+        c.classList.add('is-reading');
+        statusText.textContent = `Scanning… ${((i + 1) * FOLDERS_PER_CELL).toLocaleString('en-US')} folders`;
+      }, i * step);
+      later(() => {
+        c.classList.remove('is-reading');
+        if (i in JUNK) {
+          c.classList.add('is-junk');
+          found += JUNK[i] * TOTAL_GB;
+          foundEl.textContent = Math.min(found, TOTAL_GB).toFixed(1);
+        } else {
+          c.classList.add('is-done');
+        }
+      }, i * step + 140);
+    });
+    const end = COUNT * step + 200;
+    later(finish, end);
+    later(() => root.classList.add('is-fading'), end + 2600);
+    later(() => { if (inView) play(); }, end + 3200);
+  };
+
+  // Plays whenever its showcase stage is shown; stops when another tool is picked.
+  const stage = root.closest('.stage');
+  stage.addEventListener('stage:show', () => { inView = true; play(); });
+  stage.addEventListener('stage:hide', () => { inView = false; clearTimers(); });
 }
 
 // MARK: - Interactive macOS 26 Window Controller
@@ -1207,10 +1454,10 @@ function initMacWindowDemo(heroBubbl) {
   let state = createInitialDemoState();
   let toastTimer = null;
 
-  const sidebarItems = document.querySelectorAll('.sidebar-item[data-section]');
+  const sidebarList = document.getElementById('sidebar-list');
+  const trashSidebarBtn = document.querySelector('.sidebar-trash');
   const fdaToggleBtn = document.getElementById('window-fda-toggle');
   const fdaToggleLabel = document.getElementById('window-fda-label');
-  const uninstallerBadge = document.getElementById('uninstaller-badge');
   const sidebarTrashMeta = document.getElementById('sidebar-trash-meta');
   const navTitle = document.getElementById('mac-nav-title');
   const navSubtitle = document.getElementById('mac-nav-subtitle');
@@ -1242,9 +1489,11 @@ function initMacWindowDemo(heroBubbl) {
     switchSection('trash');
   });
 
-  sidebarItems.forEach((btn) => {
-    btn.addEventListener('click', () => switchSection(btn.dataset.section));
+  sidebarList.addEventListener('click', (e) => {
+    const row = e.target.closest('[data-section]');
+    if (row) switchSection(row.dataset.section);
   });
+  trashSidebarBtn.addEventListener('click', () => switchSection('trash'));
 
   fdaToggleBtn.addEventListener('click', () => {
     if (state.fdaGranted) {
@@ -1257,6 +1506,7 @@ function initMacWindowDemo(heroBubbl) {
 
   resetDemoBtn.addEventListener('click', () => {
     state = createInitialDemoState();
+    lastBarWidths = null;
     toastEl.hidden = true;
     heroBubbl.clearPop();
     renderAll();
@@ -1274,8 +1524,75 @@ function initMacWindowDemo(heroBubbl) {
   });
 
   function switchSection(sec) {
+    const changed = state.section !== sec;
     state.section = sec;
     renderAll();
+    if (changed) contentPane.scrollTop = 0;
+  }
+
+  // MARK: Counting numbers (CountingBytes in the app)
+
+  const shownBytes = new Map();
+  const countTimers = new Map();
+
+  function animateCounts(root) {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    root.querySelectorAll('[data-count-key]').forEach((el) => {
+      const key = el.dataset.countKey;
+      const to = Number(el.dataset.bytes);
+      const from = shownBytes.has(key) ? shownBytes.get(key) : to;
+      shownBytes.set(key, to);
+      cancelAnimationFrame(countTimers.get(key));
+      if (reduce || from === to) { el.textContent = formatBytes(to); return; }
+      const start = performance.now();
+      const dur = 700;
+      const tick = (now) => {
+        const t = Math.min(1, (now - start) / dur);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = formatBytes(from + (to - from) * eased);
+        if (t < 1) countTimers.set(key, requestAnimationFrame(tick));
+      };
+      el.textContent = formatBytes(from);
+      countTimers.set(key, requestAnimationFrame(tick));
+    });
+  }
+
+  const countSpan = (key, bytes, cls = '') =>
+    `<span class="${cls}" data-count-key="${key}" data-bytes="${Math.round(bytes)}">${formatBytes(bytes)}</span>`;
+
+  // MARK: Storage helpers
+
+  const isDone = (cat) => !state.isScanning || state.scanDone.has(cat.id);
+  const catBytes = (cat) => cat.children.reduce((a, c) => a + c.bytes, 0);
+
+  function groupBytes(groupId) {
+    return state.storageCategories
+      .filter((c) => c.group === groupId && isDone(c))
+      .reduce((a, c) => a + catBytes(c), 0);
+  }
+
+  // Groups that have something on this Mac, largest first, Personal Files last.
+  function orderedGroups() {
+    return DEMO_GROUPS
+      .filter((g) => state.storageCategories.some((c) => c.group === g.id))
+      .map((g) => ({ ...g, bytes: groupBytes(g.id) }))
+      .sort((a, b) => (a.id === 'personal') - (b.id === 'personal') || b.bytes - a.bytes);
+  }
+
+  function dupTotals() {
+    const groups = state.dupGroups.filter((g) => g.each >= state.dupMinMB * MB);
+    let wasted = 0;
+    let checkedBytes = 0;
+    let checkedCount = 0;
+    let fullyChecked = 0;
+    for (const g of groups) {
+      wasted += g.each * (g.files.length - 1);
+      const n = g.files.filter((f) => f.checked).length;
+      checkedBytes += n * g.each;
+      checkedCount += n;
+      if (n === g.files.length) fullyChecked++;
+    }
+    return { groups, wasted, checkedBytes, checkedCount, fullyChecked };
   }
 
   function storageTotals() {
@@ -1285,6 +1602,7 @@ function initMacWindowDemo(heroBubbl) {
     const selectedPaths = [];
     let hasSimctl = false;
     for (const cat of state.storageCategories) {
+      if (!isDone(cat)) continue;
       for (const ch of cat.children) {
         found += ch.bytes;
         if (ch.selected) {
@@ -1360,6 +1678,13 @@ function initMacWindowDemo(heroBubbl) {
       }
       heroBubbl.setSelectionShare(total > 0 ? checked / total : 0);
       heroBubbl.carriedAppLabel = null;
+    } else if (state.section === 'duplicates') {
+      const { wasted, checkedBytes } = dupTotals();
+      if (state.dupScanning) heroBubbl.setMood('scanning');
+      else if (wasted < 50 * MB) heroBubbl.setMood('nothingToClean');
+      else heroBubbl.setMood('junkFound', wasted);
+      heroBubbl.setSelectionShare(wasted > 0 ? Math.min(1, checkedBytes / wasted) : 0);
+      heroBubbl.carriedAppLabel = null;
     } else if (state.section === 'fileBrowser') {
       const entries = Object.values(BROWSER_TREE).flat();
       const sel = entries.find((e) => e.path === state.browserSelected);
@@ -1397,16 +1722,48 @@ function initMacWindowDemo(heroBubbl) {
     }
   }
 
-  function renderAll() {
-    sidebarItems.forEach((btn) => {
-      const active = btn.dataset.section === state.section;
-      btn.classList.toggle('is-active', active);
-      btn.setAttribute('aria-selected', String(active));
-    });
+  // MARK: Sidebar
 
-    uninstallerBadge.textContent = state.removedApps.length > 0 ? String(state.removedApps.length) : '';
-    const tTotals = trashTotals();
-    sidebarTrashMeta.textContent = state.trashItems.length > 0 ? formatBytes(tTotals.total) : 'Empty';
+  function renderSidebar() {
+    const row = (section, trailing = '') => {
+      const active = state.section === section;
+      return `
+        <li>
+          <button type="button" class="sidebar-item ${active ? 'is-active' : ''}" data-section="${section}" role="tab" aria-selected="${active}">
+            <span class="sb-icon" aria-hidden="true">${SECTION_ICONS[section]}</span>
+            <span class="sb-label">${SECTION_TITLES[section]}</span>
+            ${trailing}
+          </button>
+        </li>`;
+    };
+    const removed = state.removedApps.length;
+    sidebarList.innerHTML =
+      row('storage') +
+      row('largeFiles') +
+      row('duplicates') +
+      row('fileBrowser') +
+      row('uninstaller', removed > 0 ? `<span class="sb-badge">${removed}</span>` : '');
+
+    const trashActive = state.section === 'trash';
+    trashSidebarBtn.classList.toggle('is-active', trashActive);
+    trashSidebarBtn.setAttribute('aria-selected', String(trashActive));
+    const { total } = trashTotals();
+    sidebarTrashMeta.textContent = state.trashItems.length > 0 ? formatBytes(total) : 'Empty';
+
+    // On narrow screens the sidebar is a sideways strip: keep the active tab in view.
+    const strip = sidebarList.closest('.mac-sidebar');
+    const active = strip.querySelector('.sidebar-item.is-active');
+    if (active && strip.scrollWidth > strip.clientWidth) {
+      const a = active.getBoundingClientRect();
+      const st = strip.getBoundingClientRect();
+      if (a.left < st.left + 8 || a.right > st.right - 8) {
+        strip.scrollTo({ left: strip.scrollLeft + a.left - st.left - 40, behavior: 'smooth' });
+      }
+    }
+  }
+
+  function renderAll() {
+    renderSidebar();
 
     fdaToggleBtn.classList.toggle('is-granted', state.fdaGranted);
     fdaToggleLabel.textContent = state.fdaGranted ? 'Full Disk Access is on' : 'Full Disk Access is off';
@@ -1419,14 +1776,16 @@ function initMacWindowDemo(heroBubbl) {
   function renderToolbar() {
     if (state.section === 'storage') {
       const { found } = storageTotals();
+      const total = state.storageCategories.length;
+      const done = state.storageCategories.filter(isDone).length;
       navTitle.textContent = 'Storage Manager';
       navSubtitle.textContent = state.isScanning
-        ? `Scanning… ${formatBytes(state.liveScanBytes)} so far`
+        ? `Scanning… ${done} of ${total} categories`
         : `${formatBytes(found)} found`;
       toolbarActions.innerHTML = `
-        <button type="button" class="mac-tb-btn" id="tb-select-all">Select All</button>
+        <button type="button" class="mac-tb-btn" id="tb-select-all" ${state.isScanning ? 'disabled' : ''}>Select All</button>
         <button type="button" class="mac-tb-btn" id="tb-select-none">Deselect All</button>
-        <button type="button" class="mac-tb-btn" id="tb-rescan" ${state.isScanning ? 'disabled' : ''}>↻ ${state.isScanning ? 'Scanning…' : 'Rescan All ⌘R'}</button>
+        <button type="button" class="mac-tb-btn" id="tb-rescan" ${state.isScanning ? 'disabled' : ''}>↻ ${state.isScanning ? 'Scanning…' : 'Scan All ⌘R'}</button>
       `;
       document.getElementById('tb-select-all').onclick = () => {
         state.storageCategories.forEach((c) => c.children.forEach((ch) => (ch.selected = true)));
@@ -1458,6 +1817,35 @@ function initMacWindowDemo(heroBubbl) {
         renderAll();
       };
       document.getElementById('tb-lf-rescan').onclick = () => runScanSimulation();
+    } else if (state.section === 'duplicates') {
+      const { groups, wasted } = dupTotals();
+      navTitle.textContent = 'Duplicates';
+      navSubtitle.textContent = state.dupScanning
+        ? 'Searching Home and iCloud Drive…'
+        : `${groups.length} ${groups.length === 1 ? 'file' : 'files'} · ${formatBytes(wasted)} extra`;
+      toolbarActions.innerHTML = `
+        <select class="mac-tb-select" id="tb-dup-scope" aria-label="Where to look">
+          <option>Home and iCloud Drive</option>
+          <option>App Data (Library)</option>
+        </select>
+        <select class="mac-tb-select" id="tb-dup-min" aria-label="Minimum file size">
+          ${[1, 100, 500, 1000].map((mb) => `<option value="${mb}" ${state.dupMinMB === mb ? 'selected' : ''}>${mb >= 1000 ? '1 GB' : mb + ' MB'}</option>`).join('')}
+        </select>
+        <button type="button" class="mac-tb-btn" id="tb-dup-select" ${state.dupScanning ? 'disabled' : ''}>Select Duplicates</button>
+        <button type="button" class="mac-tb-btn" id="tb-dup-scan" ${state.dupScanning ? 'disabled' : ''}>↻ Scan Again</button>
+      `;
+      document.getElementById('tb-dup-min').onchange = (e) => {
+        state.dupMinMB = Number(e.target.value);
+        renderAll();
+      };
+      document.getElementById('tb-dup-scope').onchange = () => runDuplicateScan();
+      document.getElementById('tb-dup-scan').onclick = () => runDuplicateScan();
+      document.getElementById('tb-dup-select').onclick = () => {
+        // Tick every extra copy, keeping the newest one in each group.
+        dupTotals().groups.forEach((g) => g.files.forEach((f, i) => (f.checked = i !== 0)));
+        heroBubbl.triggerReaction('bigGulp');
+        renderAll();
+      };
     } else if (state.section === 'fileBrowser') {
       navTitle.textContent = 'File Browser';
       navSubtitle.textContent = '~ · 286.4 GB';
@@ -1508,32 +1896,135 @@ function initMacWindowDemo(heroBubbl) {
     if (state.section === 'storage') return renderStorageView();
     if (state.section === 'largeFiles') return renderLargeFilesView();
     if (state.section === 'fileBrowser') return renderFileBrowserView();
+    if (state.section === 'duplicates') return renderDuplicatesView();
     if (state.section === 'uninstaller') return renderUninstallerView();
     return renderTrashView();
   }
 
+  // Remembers the storage bar's last widths so a cleanup can shrink it smoothly.
+  let lastBarWidths = null;
+  // The category that was just opened or closed, so only it animates.
+  let justExpanded = null;
+
+  function catCardHtml(cat) {
+    if (!isDone(cat)) {
+      return `
+        <div class="cat-card is-pending">
+          <div class="cat-row">
+            <span class="cat-spinner" aria-hidden="true"></span>
+            <div class="cat-info"><span class="cat-title">${escapeHtml(cat.name)}</span></div>
+            <div class="cat-size-col"><div class="cat-size-pending">Scanning…</div></div>
+          </div>
+        </div>`;
+    }
+    const catTotal = catBytes(cat);
+    const catSel = cat.children.filter((c) => c.selected).reduce((a, c) => a + c.bytes, 0);
+    const selCount = cat.children.filter((c) => c.selected).length;
+    const checkState = selCount === 0 ? 'off' : selCount === cat.children.length ? 'on' : 'mixed';
+    const isOpen = state.expandedCats.has(cat.id) && !state.isScanning;
+    // Re-renders keep the glow's place in its animation instead of restarting it.
+    const finishedAt = state.justFinished.get(cat.id);
+    const glow = finishedAt ? `is-fresh" style="animation-delay:-${Math.round(performance.now() - finishedAt)}ms` : '';
+    return `
+      <div class="cat-card ${isOpen ? 'is-open' : ''} ${glow}">
+        <div class="cat-row">
+          <button type="button" class="cat-expand-btn ${isOpen ? 'is-open' : ''} ${justExpanded === cat.id ? 'is-turning' : ''}" data-expand="${cat.id}" aria-label="Expand ${escapeHtml(cat.name)}" aria-expanded="${isOpen}">▶</button>
+          <button type="button" class="tri-checkbox" data-cat-check="${cat.id}" data-state="${checkState}" aria-label="Select ${escapeHtml(cat.name)}" ${state.isScanning ? 'disabled' : ''}>
+            ${checkState === 'on' ? '✓' : checkState === 'mixed' ? '–' : ''}
+          </button>
+          <div class="cat-info">
+            <div class="cat-title-line">
+              <span class="cat-title">${escapeHtml(cat.name)}</span>
+              <span class="safety-badge ${cat.safety === 'safe' ? 'badge-safe' : 'badge-caution'}">${cat.safety}</span>
+            </div>
+            <p class="cat-desc">${escapeHtml(cat.details)}</p>
+          </div>
+          <div class="cat-size-col">
+            <div class="cat-size-total">${formatBytes(catTotal)}</div>
+            ${catSel > 0 ? `<div class="cat-size-selected">${formatBytes(catSel)} selected</div>` : ''}
+          </div>
+        </div>
+        ${isOpen ? `<div class="cat-children-wrap ${justExpanded === cat.id ? 'is-opening' : ''}"><div class="cat-children">
+          ${cat.children.map((ch) => `
+            <div class="cat-child-row">
+              <button type="button" class="tri-checkbox" data-child-check="${cat.id}:${ch.id}" data-state="${ch.selected ? 'on' : 'off'}" aria-label="Select ${escapeHtml(ch.name)}">
+                ${ch.selected ? '✓' : ''}
+              </button>
+              <div class="cat-child-name">
+                <span>${escapeHtml(ch.name)}</span>
+                <span class="cat-child-path">${escapeHtml(ch.path)}</span>
+              </div>
+              <span class="cat-child-size">${formatBytes(ch.bytes)}</span>
+            </div>`).join('')}
+        </div></div>` : ''}
+      </div>`;
+  }
+
+  function groupSectionHtml(g, showHeader) {
+    const cats = state.storageCategories.filter((c) => c.group === g.id);
+    // Finished categories in size order; ones still scanning wait underneath.
+    const done = cats.filter(isDone).sort((a, b) => catBytes(b) - catBytes(a));
+    const pending = cats.filter((c) => !isDone(c));
+    const kids = done.flatMap((c) => c.children);
+    const sel = kids.filter((k) => k.selected).length;
+    const checkState = sel === 0 ? 'off' : sel === kids.length ? 'on' : 'mixed';
+    const hasSafe = done.some((c) => c.safety === 'safe');
+    const missing = NOT_ON_THIS_MAC[g.id] || [];
+    const missingOpen = state.notOnMacOpen.has(g.id);
+
+    return `
+      <section class="grp" style="--gc:${g.color}">
+        ${showHeader ? `
+        <div class="grp-head">
+          <button type="button" class="tri-checkbox" data-group-check="${g.id}" data-state="${checkState}" aria-label="Select everything in ${escapeHtml(g.title)}" ${done.length === 0 || state.isScanning ? 'disabled' : ''}>
+            ${checkState === 'on' ? '✓' : checkState === 'mixed' ? '–' : ''}
+          </button>
+          <span class="grp-icon" aria-hidden="true">${g.icon}</span>
+          <h3 class="grp-title">${escapeHtml(g.title)}</h3>
+          ${hasSafe && !state.isScanning ? `<button type="button" class="mac-tb-btn grp-clean" data-group-clean="${g.id}">✨ Clean Safe Items…</button>` : ''}
+          ${done.length ? countSpan('grp-' + g.id, groupBytes(g.id), 'grp-total') : '<span class="grp-total">—</span>'}
+        </div>` : ''}
+        <div class="category-list">
+          ${done.map(catCardHtml).join('')}${pending.map(catCardHtml).join('')}
+        </div>
+        ${missing.length && !state.isScanning ? `
+        <div class="not-on-mac ${missingOpen ? 'is-open' : ''}">
+          <button type="button" class="not-on-mac-btn" data-not-on-mac="${g.id}" aria-expanded="${missingOpen}">
+            <span class="nom-chevron" aria-hidden="true">▶</span>
+            <span class="nom-icon" aria-hidden="true">⊖</span> Not on this Mac (${missing.length})
+          </button>
+          <div class="nom-list"><p>${escapeHtml(new Intl.ListFormat('en', { type: 'conjunction' }).format(missing))}</p></div>
+        </div>` : ''}
+      </section>`;
+  }
+
   function renderStorageView() {
     const { found, selected, selectedCount } = storageTotals();
-    const otherUsed = Math.max(0, state.volume.used - found);
-    const total = state.volume.total;
-    const wOther = (otherUsed / total) * 100;
-    const wCleanable = (Math.max(0, found - selected) / total) * 100;
-    const wSelected = (selected / total) * 100;
+    const vol = state.volume;
+    const otherUsed = Math.max(0, vol.used - found);
+    const widths = {
+      other: (otherUsed / vol.total) * 100,
+      cleanable: (Math.max(0, found - selected) / vol.total) * 100,
+      selected: (selected / vol.total) * 100,
+    };
+    const start = lastBarWidths || widths;
 
     let html = `
       <div class="storage-summary">
-        <p class="storage-big-number">${state.isScanning ? `Scanning… ${formatBytes(state.liveScanBytes)}` : formatBytes(found)}</p>
-        <p class="storage-lead">Found in caches, logs, developer files and downloads. Safe items are ticked for you; review the ones marked Caution.</p>
+        <p class="storage-big-number">${state.isScanning ? '<span class="big-scan">Scanning…</span> ' : ''}${countSpan('big-all', found)}${state.isScanning ? ' <span class="big-sofar">so far</span>' : ''}</p>
+        <p class="storage-lead">${state.isScanning
+          ? 'Measuring every category. Results appear as each one finishes, largest first.'
+          : 'Found in caches, logs, developer files and downloads. Safe items are ticked for you; review the ones marked Caution.'}</p>
         <div class="storage-bar-track" aria-label="Disk usage breakdown">
-          <div class="seg-used" style="width:${wOther.toFixed(1)}%"></div>
-          <div class="seg-cleanable" style="width:${wCleanable.toFixed(1)}%"></div>
-          <div class="seg-selected" style="width:${wSelected.toFixed(1)}%"></div>
+          <div class="seg-used" style="width:${start.other.toFixed(2)}%"></div>
+          <div class="seg-cleanable" style="width:${start.cleanable.toFixed(2)}%"></div>
+          <div class="seg-selected" style="width:${start.selected.toFixed(2)}%"></div>
         </div>
         <div class="storage-legend">
           <span class="legend-item"><i class="legend-dot" style="background:rgba(148,163,184,.55)"></i> Used ${formatBytes(otherUsed)}</span>
           ${found - selected > 0 ? `<span class="legend-item"><i class="legend-dot" style="background:rgba(249,115,22,.75)"></i> Cleanable ${formatBytes(found - selected)}</span>` : ''}
           ${selected > 0 ? `<span class="legend-item"><i class="legend-dot" style="background:var(--teal-400)"></i> Selected ${formatBytes(selected)}</span>` : ''}
-          <span class="legend-item"><i class="legend-dot" style="background:rgba(148,163,184,.25)"></i> Free ${formatBytes(state.volume.available)}</span>
+          <span class="legend-item"><i class="legend-dot" style="background:rgba(148,163,184,.25)"></i> Free ${countSpan('legend-free', vol.available)}</span>
         </div>
       </div>
     `;
@@ -1550,64 +2041,24 @@ function initMacWindowDemo(heroBubbl) {
       `;
     }
 
-    if (state.storageCategories.length === 0) {
-      html += `<div style="padding:36px 0;text-align:center;color:var(--text-secondary);">✨ Nothing left to clean here! Click <strong>Reset Demo</strong> above to restore sample items.</div>`;
+    const groups = orderedGroups();
+    if (groups.length === 0) {
+      html += `<div class="storage-empty">✨ Nothing left to clean here. Press <strong>Reset</strong> above the window to bring the sample items back.</div>`;
     } else {
-      html += `<div class="category-list">`;
-      for (const cat of state.storageCategories) {
-        const catTotal = cat.children.reduce((s, c) => s + c.bytes, 0);
-        const catSel = cat.children.filter((c) => c.selected).reduce((s, c) => s + c.bytes, 0);
-        const selCount = cat.children.filter((c) => c.selected).length;
-        const checkState = selCount === 0 ? 'off' : selCount === cat.children.length ? 'on' : 'mixed';
-        const isOpen = state.expandedCats.has(cat.id);
-
-        html += `
-          <div class="cat-card">
-            <div class="cat-row">
-              <button type="button" class="cat-expand-btn ${isOpen ? 'is-open' : ''}" data-expand="${cat.id}" aria-label="Expand ${escapeHtml(cat.name)}">▶</button>
-              <button type="button" class="tri-checkbox" data-cat-check="${cat.id}" data-state="${checkState}" aria-label="Select ${escapeHtml(cat.name)}">
-                ${checkState === 'on' ? '✓' : checkState === 'mixed' ? '–' : ''}
-              </button>
-              <div class="cat-info">
-                <div class="cat-title-line">
-                  <span class="cat-title">${escapeHtml(cat.name)}</span>
-                  <span class="safety-badge ${cat.safety === 'safe' ? 'badge-safe' : 'badge-caution'}">${cat.safety}</span>
-                </div>
-                <p class="cat-desc">${escapeHtml(cat.details)}</p>
-              </div>
-              <div class="cat-size-col">
-                <div class="cat-size-total">${formatBytes(catTotal)}</div>
-                ${catSel > 0 ? `<div class="cat-size-selected">${formatBytes(catSel)} selected</div>` : ''}
-              </div>
-            </div>
-            ${
-              isOpen
-                ? `<div class="cat-children">
-                    ${cat.children
-                      .map(
-                        (ch) => `
-                      <div class="cat-child-row">
-                        <button type="button" class="tri-checkbox" data-child-check="${cat.id}:${ch.id}" data-state="${ch.selected ? 'on' : 'off'}" aria-label="Select ${escapeHtml(ch.name)}">
-                          ${ch.selected ? '✓' : ''}
-                        </button>
-                        <div class="cat-child-name">
-                          <span>${escapeHtml(ch.name)}</span>
-                          <span class="cat-child-path">${escapeHtml(ch.path)}</span>
-                        </div>
-                        <span class="cat-child-size">${formatBytes(ch.bytes)}</span>
-                      </div>`
-                      )
-                      .join('')}
-                  </div>`
-                : ''
-            }
-          </div>
-        `;
-      }
-      html += `</div>`;
+      html += groups.map((g) => groupSectionHtml(g, true)).join('');
     }
 
     contentPane.innerHTML = html;
+    animateCounts(contentPane);
+
+    // Slide the bar from its last widths to the new ones.
+    const segs = contentPane.querySelectorAll('.storage-bar-track > div');
+    requestAnimationFrame(() => {
+      segs[0].style.width = `${widths.other.toFixed(2)}%`;
+      segs[1].style.width = `${widths.cleanable.toFixed(2)}%`;
+      segs[2].style.width = `${widths.selected.toFixed(2)}%`;
+    });
+    lastBarWidths = widths;
 
     if (!state.fdaGranted) {
       document.getElementById('inline-open-fda').onclick = () => openFDAModal();
@@ -1618,7 +2069,39 @@ function initMacWindowDemo(heroBubbl) {
         const id = btn.dataset.expand;
         if (state.expandedCats.has(id)) state.expandedCats.delete(id);
         else state.expandedCats.add(id);
+        justExpanded = id;
         renderAll();
+        justExpanded = null;
+      };
+    });
+
+    contentPane.querySelectorAll('[data-not-on-mac]').forEach((btn) => {
+      btn.onclick = () => {
+        const id = btn.dataset.notOnMac;
+        if (state.notOnMacOpen.has(id)) state.notOnMacOpen.delete(id);
+        else state.notOnMacOpen.add(id);
+        btn.closest('.not-on-mac').classList.toggle('is-open');
+        btn.setAttribute('aria-expanded', String(state.notOnMacOpen.has(id)));
+      };
+    });
+
+    contentPane.querySelectorAll('[data-group-check]').forEach((btn) => {
+      btn.onclick = () => {
+        const kids = state.storageCategories.filter((c) => c.group === btn.dataset.groupCheck).flatMap((c) => c.children);
+        const allOn = kids.every((k) => k.selected);
+        kids.forEach((k) => (k.selected = !allOn));
+        heroBubbl.triggerReaction(allOn ? 'spit' : 'bigGulp');
+        renderAll();
+      };
+    });
+
+    contentPane.querySelectorAll('[data-group-clean]').forEach((btn) => {
+      btn.onclick = () => {
+        const g = DEMO_GROUPS.find((x) => x.id === btn.dataset.groupClean);
+        const picks = state.storageCategories
+          .filter((c) => c.group === g.id && c.safety === 'safe')
+          .flatMap((cat) => cat.children.map((ch) => ({ cat, ch })));
+        trashStorageItems(picks, g.title);
       };
     });
 
@@ -1645,7 +2128,7 @@ function initMacWindowDemo(heroBubbl) {
       };
     });
 
-    if (selectedCount > 0) {
+    if (selectedCount > 0 && !state.isScanning) {
       selectionBar.hidden = false;
       selectionBar.innerHTML = `
         <div>
@@ -1865,6 +2348,142 @@ function initMacWindowDemo(heroBubbl) {
       showToast(`${sel.name} (${formatBytes(sel.bytes)}) previewed for Trash`, 'In the live app, this moves the selected folder or file straight to Finder’s Trash.');
     };
     return true;
+  }
+
+  function renderDuplicatesView() {
+    if (state.dupScanning) {
+      contentPane.innerHTML = `
+        <div class="dup-scanning">
+          <span class="cat-spinner" aria-hidden="true"></span>
+          <div>
+            <strong>Searching Home and iCloud Drive</strong>
+            <p>Comparing files of the same size, then their contents. Files it has seen before aren’t read again.</p>
+          </div>
+        </div>`;
+      selectionBar.hidden = true;
+      return false;
+    }
+
+    const { groups, checkedBytes, checkedCount, fullyChecked } = dupTotals();
+    if (groups.length === 0) {
+      contentPane.innerHTML = `<div class="storage-empty">✨ No identical files of ${state.dupMinMB >= 1000 ? '1 GB' : state.dupMinMB + ' MB'} or more.</div>`;
+      selectionBar.hidden = true;
+      return false;
+    }
+
+    contentPane.innerHTML = `
+      <div class="dup-list">
+        ${groups.map((g) => {
+          const n = g.files.filter((f) => f.checked).length;
+          const all = n === g.files.length;
+          const checkState = n === 0 ? 'off' : all ? 'on' : 'mixed';
+          return `
+            <div class="dup-card ${all ? 'is-warning' : ''}">
+              <div class="dup-head">
+                <button type="button" class="tri-checkbox" data-dup-group="${g.id}" data-state="${checkState}" aria-label="Select extra copies of ${escapeHtml(g.name)}">
+                  ${checkState === 'on' ? '✓' : checkState === 'mixed' ? '–' : ''}
+                </button>
+                <span class="dup-ext">${escapeHtml(g.kind)}</span>
+                <div class="dup-title">
+                  <strong>${escapeHtml(g.name)}</strong>
+                  <span>${g.files.length} copies · ${formatBytes(g.each)} each</span>
+                </div>
+                ${all ? '<span class="dup-warn">⚠︎ Keep one copy</span>' : ''}
+                <span class="dup-extra">${formatBytes(g.each * (g.files.length - 1))} extra</span>
+              </div>
+              <div class="dup-files">
+                ${g.files.map((f) => `
+                  <div class="dup-file ${f.checked ? 'is-checked' : ''}">
+                    <button type="button" class="tri-checkbox" data-dup-file="${g.id}:${f.id}" data-state="${f.checked ? 'on' : 'off'}" aria-label="Select ${escapeHtml(f.path)}">${f.checked ? '✓' : ''}</button>
+                    <span class="dup-path">${escapeHtml(f.path)}</span>
+                    <span class="dup-mod">Modified ${escapeHtml(f.modified)}</span>
+                  </div>`).join('')}
+              </div>
+            </div>`;
+        }).join('')}
+      </div>`;
+
+    contentPane.querySelectorAll('[data-dup-group]').forEach((btn) => {
+      btn.onclick = () => {
+        const g = state.dupGroups.find((x) => x.id === btn.dataset.dupGroup);
+        const any = g.files.some((f) => f.checked);
+        g.files.forEach((f, i) => (f.checked = any ? false : i !== 0));
+        heroBubbl.triggerReaction(any ? 'spit' : 'gulp');
+        renderAll();
+      };
+    });
+    contentPane.querySelectorAll('[data-dup-file]').forEach((btn) => {
+      btn.onclick = () => {
+        const [gid, fid] = btn.dataset.dupFile.split(':');
+        const f = state.dupGroups.find((x) => x.id === gid)?.files.find((x) => x.id === fid);
+        if (!f) return;
+        f.checked = !f.checked;
+        heroBubbl.triggerReaction(f.checked ? 'gulp' : 'spit');
+        renderAll();
+      };
+    });
+
+    if (checkedCount > 0) {
+      const blocked = fullyChecked > 0;
+      selectionBar.hidden = false;
+      selectionBar.innerHTML = `
+        <div>
+          <div class="sel-title">${formatBytes(checkedBytes)} selected</div>
+          <div class="sel-detail">${blocked ? 'Keep at least one copy of every file' : `${checkedCount} ${checkedCount === 1 ? 'copy' : 'copies'} will move to the Trash`}</div>
+        </div>
+        <div class="sel-actions">
+          <button type="button" class="mac-tb-btn" id="dup-deselect">Deselect All</button>
+          <button type="button" class="glass-prominent" id="dup-trash" style="padding:7px 14px;font-size:0.8rem;" ${blocked ? 'disabled' : ''}>Move to Trash…</button>
+        </div>
+      `;
+      document.getElementById('dup-deselect').onclick = () => {
+        state.dupGroups.forEach((g) => g.files.forEach((f) => (f.checked = false)));
+        heroBubbl.triggerReaction('spit');
+        renderAll();
+      };
+      document.getElementById('dup-trash').onclick = () => {
+        if (blocked) return;
+        confirmAndRun({
+          title: `Move ${checkedCount} ${checkedCount === 1 ? 'copy' : 'copies'} (${formatBytes(checkedBytes)}) to the Trash?`,
+          message: 'One copy of each file stays where it is. You can restore the others from the Trash until you empty it.',
+          confirmText: 'Move to Trash',
+          danger: false,
+          bytes: checkedBytes,
+          count: checkedCount,
+          onConfirm: () => {
+            for (const g of state.dupGroups) {
+              for (const f of g.files.filter((x) => x.checked)) {
+                state.trashItems.unshift({
+                  id: 'tr-' + Date.now() + '-' + f.id,
+                  name: f.path.split('/').pop(),
+                  bytes: g.each,
+                  kind: 'Duplicate',
+                  daysAgo: 0,
+                  dateLabel: 'Just now',
+                  selected: false,
+                });
+              }
+              g.files = g.files.filter((x) => !x.checked);
+            }
+            state.dupGroups = state.dupGroups.filter((g) => g.files.length > 1);
+          },
+        });
+      };
+      return true;
+    }
+
+    selectionBar.hidden = true;
+    return false;
+  }
+
+  function runDuplicateScan() {
+    if (state.dupScanning) return;
+    state.dupScanning = true;
+    renderAll();
+    setTimeout(() => {
+      state.dupScanning = false;
+      renderAll();
+    }, 1400);
   }
 
   function findSelectedUninstallItem() {
@@ -2199,36 +2818,48 @@ function initMacWindowDemo(heroBubbl) {
   }
 
   function requestStorageTrash() {
-    const { selected, selectedCount, selectedPaths, hasSimctl } = storageTotals();
-    if (selectedCount === 0) return;
+    const picks = state.storageCategories.flatMap((cat) =>
+      cat.children.filter((ch) => ch.selected).map((ch) => ({ cat, ch }))
+    );
+    trashStorageItems(picks);
+  }
 
+  // Moves storage items to the Trash after the usual confirmation (simctl items are removed).
+  function trashStorageItems(picks, groupTitle = null) {
+    if (picks.length === 0) return;
+    const bytes = picks.reduce((a, p) => a + p.ch.bytes, 0);
+    const hasSimctl = picks.some((p) => p.cat.isSimctl);
+    const n = picks.length;
     confirmAndRun({
-      title: `Move ${selectedCount} ${selectedCount === 1 ? 'item' : 'items'} (${formatBytes(selected)}) to the Trash?`,
+      title: groupTitle
+        ? `Move ${n} Safe ${n === 1 ? 'item' : 'items'} in ${groupTitle} (${formatBytes(bytes)}) to the Trash?`
+        : `Move ${n} ${n === 1 ? 'item' : 'items'} (${formatBytes(bytes)}) to the Trash?`,
       message: hasSimctl
         ? 'Caches move to the Trash where you can restore them. Simulator runtimes are removed with Xcode’s simctl.'
         : 'You can restore them from the Trash until you empty it.',
       confirmText: 'Move to Trash',
       danger: false,
-      bytes: selected,
-      count: selectedCount,
+      bytes,
+      count: n,
       onConfirm: () => {
-        for (const cat of state.storageCategories) {
-          const picked = cat.children.filter((c) => c.selected);
-          if (!cat.isSimctl) {
-            for (const p of picked) {
-              state.trashItems.unshift({
-                id: 'tr-' + Date.now() + '-' + p.id,
-                name: p.name,
-                bytes: p.bytes,
-                kind: cat.name,
-                daysAgo: 0,
-                dateLabel: 'Just now',
-                selected: false,
-              });
-            }
-          }
-          cat.children = cat.children.filter((c) => !c.selected);
+        const ids = new Set(picks.map((p) => p.ch.id));
+        for (const { cat, ch } of picks) {
+          if (cat.isSimctl) continue;
+          state.trashItems.unshift({
+            id: 'tr-' + Date.now() + '-' + ch.id,
+            name: ch.name,
+            bytes: ch.bytes,
+            kind: cat.name,
+            daysAgo: 0,
+            dateLabel: 'Just now',
+            selected: false,
+          });
         }
+        // simctl removals free space right away; everything else waits in the Trash.
+        const freedNow = picks.filter((p) => p.cat.isSimctl).reduce((a, p) => a + p.ch.bytes, 0);
+        state.volume.used -= freedNow;
+        state.volume.available += freedNow;
+        for (const cat of state.storageCategories) cat.children = cat.children.filter((c) => !ids.has(c.id));
         state.storageCategories = state.storageCategories.filter((c) => c.children.length > 0);
       },
     });
@@ -2321,28 +2952,36 @@ function initMacWindowDemo(heroBubbl) {
     }, 5000);
   }
 
+  // Categories finish one by one and slot into size order, like the app's live scan.
   function runScanSimulation() {
     if (state.isScanning) return;
+    const scope = state.storageCategories;
     state.isScanning = true;
-    state.liveScanBytes = 0;
-    const targetBytes = storageTotals().found || 38.4 * GB;
+    state.scanDone = new Set();
+    state.justFinished = new Map();
+    // Small categories tend to finish first; add a little jitter.
+    const order = scope
+      .map((c) => ({ id: c.id, t: Math.log10(catBytes(c) / MB + 10) + Math.random() * 0.8 }))
+      .sort((a, b) => a.t - b.t)
+      .map((x) => x.id);
     renderAll();
 
-    const start = performance.now();
-    const timer = setInterval(() => {
-      const p = Math.min(1, (performance.now() - start) / 1300);
-      state.liveScanBytes = Math.round(targetBytes * p);
-      navSubtitle.textContent = `Scanning… ${formatBytes(state.liveScanBytes)} so far`;
-      if (state.section === 'storage') {
-        const big = contentPane.querySelector('.storage-big-number');
-        if (big) big.textContent = `Scanning… ${formatBytes(state.liveScanBytes)}`;
-      }
-      if (p >= 1) {
-        clearInterval(timer);
-        state.isScanning = false;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const step = reduce ? 40 : 230;
+    order.forEach((id, i) => {
+      setTimeout(() => {
+        state.scanDone.add(id);
+        state.justFinished.set(id, performance.now());
+        setTimeout(() => state.justFinished.delete(id), 1200);
         renderAll();
-      }
-    }, 110);
+      }, 350 + i * step);
+    });
+    setTimeout(() => {
+      state.isScanning = false;
+      state.scanDone = null;
+      heroBubbl.triggerReaction('bigGulp');
+      renderAll();
+    }, 350 + order.length * step + 250);
   }
 
   bubblCanvas.addEventListener('click', () => {
