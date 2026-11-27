@@ -108,7 +108,7 @@ struct StorageManagerView: View {
             }
         }
         .quickLookPreview($previewURL)
-        .searchable(text: $model.filter.query, placement: .toolbar, prompt: "Search names and paths")
+        .searchable(text: $model.searchText, placement: .toolbar, prompt: "Search names and paths")
         .onChange(of: model.filter.query) { _, query in
             // Open the categories that have matches so they can be seen at once.
             guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return }

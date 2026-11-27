@@ -53,7 +53,7 @@ struct LargeFilesView: View {
             // Scan on first visit; the model outlives the view, so returning keeps earlier results.
             // Asks for Full Disk Access first, so macOS's per-folder prompts don't come instead.
             await access.showWelcomeIfNeeded()
-            if !model.hasScanned { model.scan() }
+            await model.appear()
         }
     }
 
@@ -189,6 +189,8 @@ struct LargeFilesView: View {
             return "Scanning… \(model.scannedCount.formatted()) files checked, \(model.visibleRows.count.formatted()) found"
         }
         guard model.hasScanned else { return "Not scanned yet" }
-        return "\(model.visibleRows.count.formatted()) files · \(model.totalBytes.fileSize)"
+        let summary = "\(model.visibleRows.count.formatted()) files · \(model.totalBytes.fileSize)"
+        if model.isRefreshing { return "\(summary) · Updating…" }
+        return summary
     }
 }

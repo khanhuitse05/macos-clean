@@ -49,6 +49,11 @@ struct DuplicatesView: View {
             }
         }
         .quickLookPreview($previewURL)
+        // Saved groups appear at once on the first visit and are checked again in the background.
+        .task {
+            await access.showWelcomeIfNeeded()
+            await model.appear()
+        }
     }
 
     private var emptyDescription: String {
@@ -192,7 +197,9 @@ struct DuplicatesView: View {
     private var subtitle: String {
         if model.isScanning { return ScanStageView.describe(model.stage, done: model.stageDone, total: model.stageTotal) }
         guard model.hasScanned else { return "Not scanned yet" }
-        return "\(model.groups.count.formatted()) \(model.groups.count == 1 ? "file" : "files") with copies · \(model.wastedBytes.fileSize) in extra copies"
+        let summary = "\(model.groups.count.formatted()) \(model.groups.count == 1 ? "file" : "files") with copies · \(model.wastedBytes.fileSize) in extra copies"
+        if model.isRefreshing { return "\(summary) · Updating…" }
+        return summary
     }
 }
 

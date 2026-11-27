@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import MacosCleanCore
 
@@ -574,5 +575,147 @@ struct SuggestionEngineTests {
         #expect(SuggestionEngine.suggest(inputs, now: now).map(\.appName) == ["App4", "App3", "App2"])
         inputs.dismissed = ["unused-app:id4": daysAgo(5), "unused-app:id3": daysAgo(40)]
         #expect(SuggestionEngine.suggest(inputs, now: now).map(\.appName) == ["App3", "App2", "App1"])
+    }
+}
+
+// MARK: - Duplicate hash cache
+
+@Suite("HashCache")
+struct HashCacheTests {
+    func bytes(_ count: Int, seed: UInt8) -> Data {
+        Data((0..<count).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ Int(seed)) })
+    }
+
+    func write(_ data: Data, _ tree: TempTree, _ relative: String) throws {
+        let url = tree.url(relative)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url)
+    }
+
+    /// A whole-second time, which setting a modification date keeps exactly.
+    static let stamp = Date(timeIntervalSince1970: 1_700_000_000)
+
+    /// Changes one byte in place, keeping the inode, size and modification time (``stamp``).
+    func corruptKeepingStamp(_ url: URL) throws {
+        let modified = Self.stamp
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seek(toOffset: 150_000)
+        try handle.write(contentsOf: Data([0x00, 0x01, 0x02]))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: url.path)
+    }
+
+    @Test func unchangedFilesReuseTheirHashes() async throws {
+        let tree = try TempTree()
+        let content = bytes(300_000, seed: 11)
+        try write(content, tree, "a/one.bin")
+        try write(content, tree, "b/two.bin")
+        for file in ["a/one.bin", "b/two.bin"] {
+            try FileManager.default.setAttributes([.modificationDate: Self.stamp], ofItemAtPath: tree.url(file).path)
+        }
+        let cache = HashCache(url: nil)
+        let finder = DuplicateFinder(root: tree.root, minimumBytes: 100_000, respectsGitignore: false, hashCache: cache)
+        #expect(await finder.find().count == 1)
+        #expect(cache.count == 2)
+
+        // The cache answers for a file whose stamp didn't change, so it isn't read again.
+        try corruptKeepingStamp(tree.url("b/two.bin"))
+        #expect(await finder.find().count == 1)
+        // Without the cache the change is seen.
+        #expect(await DuplicateFinder(root: tree.root, minimumBytes: 100_000, respectsGitignore: false).find().isEmpty)
+    }
+
+    @Test func aNewModificationTimeMeansReadingAgain() async throws {
+        let tree = try TempTree()
+        let content = bytes(300_000, seed: 12)
+        try write(content, tree, "one.bin")
+        try write(content, tree, "two.bin")
+        let cache = HashCache(url: nil)
+        let finder = DuplicateFinder(root: tree.root, minimumBytes: 100_000, respectsGitignore: false, hashCache: cache)
+        #expect(await finder.find().count == 1)
+        var changed = content
+        changed[150_000] ^= 0xFF
+        try write(changed, tree, "two.bin")
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 60)], ofItemAtPath: tree.url("two.bin").path)
+        #expect(await finder.find().isEmpty)
+    }
+
+    @Test func savesAndReloads() async throws {
+        let tree = try TempTree()
+        let content = bytes(300_000, seed: 13)
+        try write(content, tree, "files/one.bin")
+        try write(content, tree, "files/two.bin")
+        let url = tree.url("cache/hashes.json")
+        let finder = DuplicateFinder(
+            root: tree.url("files"), minimumBytes: 100_000, respectsGitignore: false, hashCache: HashCache(url: url)
+        )
+        #expect(await finder.find().count == 1)
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        #expect(HashCache(url: url).count == 2)
+    }
+
+    @Test func dropsRecordsUnusedForTooLong() throws {
+        let tree = try TempTree()
+        let url = tree.url("hashes.json")
+        let start = Date()
+        let old = HashCache(url: url, now: { start })
+        old.store("abc", .edge, path: "/x", size: 1, modified: start, inode: 1)
+        old.save()
+        let later = HashCache(url: url, now: { start.addingTimeInterval(HashCache.retention + 60) })
+        later.store("def", .edge, path: "/y", size: 1, modified: start, inode: 2)
+        later.save()
+        #expect(HashCache(url: url).count == 1)
+    }
+}
+
+// MARK: - FSEvents history replay
+
+@Suite("FileSystemWatcher")
+struct FileSystemWatcherTests {
+    /// Waits for the first replay to finish; nil on timeout.
+    func replay(_ paths: [String], since: UInt64) async -> [FileSystemChange]? {
+        let collected = Mutex<[FileSystemChange]>([])
+        let stream = AsyncStream<Void> { continuation in
+            let watcher = FileSystemWatcher(paths: paths, latency: 0.1, since: since, onHistoryDone: {
+                continuation.yield()
+                continuation.finish()
+            }) { changes in
+                collected.withLock { $0 += changes }
+            }
+            watcher.start()
+            // Finishing happens on the watcher's own queue, where stop() can't wait for it.
+            continuation.onTermination = { _ in DispatchQueue.global().async { watcher.stop() } }
+        }
+        let done = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in stream { return true }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(15))
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        return done ? collected.withLock { $0 } : nil
+    }
+
+    @Test func eventIDsAndHistoryIDAreAvailable() {
+        #expect(FileSystemWatcher.currentEventID > 0)
+        #expect(FileSystemWatcher.historyID(ofVolumeAt: NSHomeDirectory()) != nil)
+    }
+
+    @Test func replaysChangesMadeBeforeItStarted() async throws {
+        let tree = try TempTree()
+        try tree.dir("watched/inner")
+        try await Task.sleep(for: .milliseconds(300))
+        let since = FileSystemWatcher.currentEventID
+        try tree.file("watched/inner/new.bin", bytes: 4_096)
+        // FSEvents hands events to its history after a short delay.
+        try await Task.sleep(for: .seconds(1.5))
+        let changes = try #require(await replay([tree.url("watched").path], since: since))
+        #expect(changes.contains { $0.path.hasSuffix("/watched/inner") })
     }
 }

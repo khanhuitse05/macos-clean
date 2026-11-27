@@ -38,7 +38,11 @@ final class DuplicatesModel {
     /// Visible groups whose copies all belong to apps (only found when ~/Library is searched).
     private(set) var managedGroups: [DuplicateGroup] = []
     private(set) var isScanning = false
+    /// Searching again in the background while the saved or earlier groups stay on screen.
+    private(set) var isRefreshing = false
     private(set) var hasScanned = false
+    /// When the groups on screen were found; set for finished searches and restored results.
+    private(set) var scannedAt: Date?
     private(set) var stage: DuplicateEvent.Stage = .walking
     private(set) var stageDone = 0
     private(set) var stageTotal = 0
@@ -60,6 +64,25 @@ final class DuplicatesModel {
     private var pendingFound: [DuplicateGroup] = []
     private var pendingFlush: Task<Void, Never>?
     private var folderShownAt = ContinuousClock.now
+    @ObservationIgnored private var didAppear = false
+    /// The folder and size the groups on screen were found with; nil while a search replaces them.
+    @ObservationIgnored private var resultsScope: Scope?
+    @ObservationIgnored private let store = SavedResults<Saved>(fileName: "duplicates.json")
+
+    struct Scope: Equatable {
+        let root: String
+        let minimumMB: Int
+    }
+
+    /// The last finished search, kept between launches.
+    struct Saved: Codable, Sendable {
+        var version = 1
+        var root: String
+        var minimumMB: Int
+        var scannedAt: Date
+        var groups: [DuplicateGroup]
+        var deniedPaths: [String]
+    }
 
     static let homeURL = URL(fileURLWithPath: NSHomeDirectory())
     static let libraryURL = homeURL.appendingPathComponent("Library", isDirectory: true)
@@ -79,6 +102,13 @@ final class DuplicatesModel {
 
     // MARK: Scanning
 
+    /// First visit this launch: shows the saved groups and searches again in the background.
+    func appear() async {
+        guard !didAppear else { return }
+        didAppear = true
+        if !hasScanned, await restore() { refresh() }
+    }
+
     func scan() {
         stop()
         groups = []
@@ -89,18 +119,41 @@ final class DuplicatesModel {
         stageTotal = 0
         currentFolder = ""
         latestFound = nil
+        scannedAt = nil
+        resultsScope = nil
         isScanning = true
         hasScanned = true
         refreshVisible()
+        run(refreshing: false)
+    }
 
+    /// Searches again while the current groups stay on screen, then swaps in the new ones.
+    func refresh() {
+        stop()
+        isRefreshing = true
+        run(refreshing: true)
+    }
+
+    private func run(refreshing: Bool) {
         let finder = DuplicateFinder(
-            roots: searchRoots, minimumBytes: Int64(minimumMB) * 1_024 * 1_024, exclusions: ExclusionStore.shared.list
+            roots: searchRoots, minimumBytes: Int64(minimumMB) * 1_024 * 1_024, exclusions: ExclusionStore.shared.list,
+            hashCache: .shared
         )
+        let scope = Scope(root: root.path, minimumMB: minimumMB)
         scanGeneration += 1
         let generation = scanGeneration
         scanTask = Task { [weak self] in
-            for await event in finder.scan() {
+            var denied: [String] = []
+            for await event in finder.scan(priority: refreshing ? .utility : .userInitiated) {
                 guard let self, !Task.isCancelled else { break }
+                if refreshing {
+                    switch event {
+                    case .denied(let path): denied.append(path)
+                    case .finished(let found): replaceGroups(with: found, denied: denied, scope: scope)
+                    case .progress, .looking, .found: break
+                    }
+                    continue
+                }
                 switch event {
                 case .progress(let stage, let done, let total):
                     self.stage = stage
@@ -126,9 +179,15 @@ final class DuplicatesModel {
                         groups = found
                         refreshVisible()
                     }
+                    scannedAt = Date()
+                    resultsScope = scope
+                    save()
                 }
             }
-            if let self, generation == scanGeneration { isScanning = false }
+            if let self, generation == scanGeneration {
+                isScanning = false
+                isRefreshing = false
+            }
         }
     }
 
@@ -139,6 +198,63 @@ final class DuplicatesModel {
         pendingFlush = nil
         pendingFound = []
         isScanning = false
+        isRefreshing = false
+    }
+
+    private func replaceGroups(with found: [DuplicateGroup], denied: [String], scope: Scope) {
+        Motion.animate {
+            groups = found
+            deniedPaths = denied
+            checked = checked.intersection(found.flatMap(\.files).map(\.path))
+            refreshVisible()
+        }
+        scannedAt = Date()
+        resultsScope = scope
+        save()
+    }
+
+    // MARK: Saved results
+
+    /// Shows the last launch's groups for the same folder and size. A copy that's gone, was
+    /// changed since, or is now excluded is left out, and so is a group left with one copy.
+    private func restore() async -> Bool {
+        guard let saved = await store.load(), saved.version == 1,
+              saved.root == root.path, saved.minimumMB == minimumMB
+        else { return false }
+        let exclusions = ExclusionStore.shared.list.applying(toRoot: root.standardizedFileURL.path)
+        let kept = await Self.stillIdentical(saved.groups, exclusions: exclusions)
+        guard !hasScanned else { return false }
+        groups = kept
+        deniedPaths = saved.deniedPaths
+        scannedAt = saved.scannedAt
+        resultsScope = Scope(root: saved.root, minimumMB: saved.minimumMB)
+        hasScanned = true
+        refreshVisible()
+        return true
+    }
+
+    @concurrent
+    private static func stillIdentical(_ groups: [DuplicateGroup], exclusions: ExclusionList) async -> [DuplicateGroup] {
+        groups.compactMap { group in
+            let files = group.files.compactMap { file -> FileEntry? in
+                guard !exclusions.isExcluded(file.path), let stamp = FileStamp(path: file.path),
+                      stamp.logicalBytes == group.fileBytes, stamp.isModified(at: file.modified)
+                else { return nil }
+                return FileEntry(path: file.path, sizeBytes: stamp.allocatedBytes, isDirectory: false, modified: file.modified)
+            }
+            guard files.count > 1 else { return nil }
+            return DuplicateGroup(id: group.id, fileBytes: group.fileBytes, files: files, isAppManaged: group.isAppManaged)
+        }
+    }
+
+    /// Saves the groups on screen, once a search has finished (never a partial one).
+    private func save() {
+        guard let scannedAt, let resultsScope else { return }
+        let saved = Saved(
+            root: resultsScope.root, minimumMB: resultsScope.minimumMB, scannedAt: scannedAt,
+            groups: groups, deniedPaths: deniedPaths
+        )
+        Task { await store.save(saved) }
     }
 
     private func scheduleFoundFlush() {
@@ -168,6 +284,7 @@ final class DuplicatesModel {
         let hidden = Set(groups.flatMap(\.files).lazy.filter { effective.isExcluded($0.path) }.map(\.path))
         guard !hidden.isEmpty else { return }
         Motion.animate { drop(hidden) }
+        save()
     }
 
     private func refreshVisible() {
@@ -262,6 +379,7 @@ final class DuplicatesModel {
 
     private func removeTrashed(_ summary: CleanSummary) {
         drop(summary.trashedPaths)
+        save()
     }
 
     /// Removes `paths` from the groups; a group left with one copy has no duplicates anymore.

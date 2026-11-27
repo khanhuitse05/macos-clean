@@ -78,9 +78,9 @@ final class AppState {
             storage.isScanningAll || !storage.refreshing.isEmpty
                 || storage.categories.contains { storage.phase(of: $0) == .scanning }
         case .largeFiles:
-            largeFiles.isScanning
+            largeFiles.isScanning || largeFiles.isRefreshing
         case .duplicates:
-            duplicates.isScanning
+            duplicates.isScanning || duplicates.isRefreshing
         case .fileBrowser:
             // Only once browsing started; an untouched File Browser isn't measuring anything.
             fileBrowser.state(of: fileBrowser.root.path).map { !$0.isMeasured && !$0.isDenied } ?? false

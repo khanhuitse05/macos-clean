@@ -4,7 +4,7 @@ import Foundation
 import Synchronization
 
 /// Copies of the same file content.
-public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
+public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable, Codable {
     /// SHA-256 of the content, hex.
     public let id: String
     /// Logical length of each copy.
@@ -75,6 +75,9 @@ public struct DuplicateFinder: Sendable {
     public let home: String
     /// Leaves out files their git repository ignores.
     public let respectsGitignore: Bool
+    /// Hashes from earlier scans; files that haven't changed aren't read again. Saved when a
+    /// search ends (finished or stopped).
+    public let hashCache: HashCache?
 
     public var root: URL { roots[0] }
 
@@ -139,10 +142,11 @@ public struct DuplicateFinder: Sendable {
 
     public init(
         roots: [URL], minimumBytes: Int64, maxDepth: Int = 12, exclusions: ExclusionList = .empty,
-        home: String = NSHomeDirectory(), respectsGitignore: Bool = true
+        home: String = NSHomeDirectory(), respectsGitignore: Bool = true, hashCache: HashCache? = nil
     ) {
         precondition(!roots.isEmpty, "DuplicateFinder needs at least one root")
         self.respectsGitignore = respectsGitignore
+        self.hashCache = hashCache
         self.roots = roots
         self.minimumBytes = max(1, minimumBytes)
         self.maxDepth = maxDepth
@@ -152,19 +156,21 @@ public struct DuplicateFinder: Sendable {
 
     public init(
         root: URL, minimumBytes: Int64, maxDepth: Int = 12, exclusions: ExclusionList = .empty,
-        home: String = NSHomeDirectory(), respectsGitignore: Bool = true
+        home: String = NSHomeDirectory(), respectsGitignore: Bool = true, hashCache: HashCache? = nil
     ) {
         self.init(
             roots: [root], minimumBytes: minimumBytes, maxDepth: maxDepth, exclusions: exclusions, home: home,
-            respectsGitignore: respectsGitignore
+            respectsGitignore: respectsGitignore, hashCache: hashCache
         )
     }
 
     /// Cancel the consuming task (or stop iterating) to stop.
-    public func scan() -> AsyncStream<DuplicateEvent> {
+    /// - Parameter priority: `.userInitiated` for a search the person started, `.utility` for
+    ///   a refresh in the background.
+    public func scan(priority: TaskPriority = .userInitiated) -> AsyncStream<DuplicateEvent> {
         let finder = self
         return AsyncStream(bufferingPolicy: .unbounded) { continuation in
-            let task = Task.detached(priority: .utility) {
+            let task = Task.detached(priority: priority) {
                 let groups = await finder.run { continuation.yield($0) }
                 if !Task.isCancelled { continuation.yield(.finished(groups)) }
                 continuation.finish()
@@ -185,9 +191,12 @@ public struct DuplicateFinder: Sendable {
         let allocated: Int64
         let logical: Int64
         let modified: Date
+        var inode: UInt64 = 0
     }
 
     private func run(_ emit: @escaping @Sendable (DuplicateEvent) -> Void) async -> [DuplicateGroup] {
+        // Even a stopped search keeps the hashes it computed.
+        defer { hashCache?.save() }
         let files = await collect(emit)
         guard !Task.isCancelled else { return [] }
 
@@ -205,7 +214,7 @@ public struct DuplicateFinder: Sendable {
 
         // Stage 2: same start and end.
         let partialInput = bySize.flatMap { $0 }
-        let partial = await hashAll(partialInput, stage: .comparingStarts, emit: emit, hash: { Self.edgeHash(of: $0) })
+        let partial = await hashAll(partialInput, stage: .comparingStarts, kind: .edge, emit: emit, hash: { Self.edgeHash(of: $0) })
         guard !Task.isCancelled else { return [] }
         var survivors: [[Candidate]] = []
         for group in bySize {
@@ -233,7 +242,7 @@ public struct DuplicateFinder: Sendable {
             groups += found
         }
         for index in survivors.indices where remaining[index] == 0 { confirm(index) }
-        await hashAll(needsFull, stage: .comparingContents, emit: emit, hash: { Self.fullHash(of: $0) }) { candidate, value in
+        await hashAll(needsFull, stage: .comparingContents, kind: .full, emit: emit, hash: { Self.fullHash(of: $0) }) { candidate, value in
             if let value { full[candidate] = value }
             guard let index = groupOf[candidate] else { return }
             remaining[index] -= 1
@@ -265,10 +274,12 @@ public struct DuplicateFinder: Sendable {
     }
 
     /// Hashes candidates in parallel; files that can't be read are left out. `each` sees every
-    /// result as it arrives (`nil` when the file couldn't be read).
+    /// result as it arrives (`nil` when the file couldn't be read). Hashes in ``hashCache``
+    /// for an unchanged file are used without opening it.
     @discardableResult
     private func hashAll(
-        _ candidates: [Candidate], stage: DuplicateEvent.Stage, emit: @escaping @Sendable (DuplicateEvent) -> Void,
+        _ candidates: [Candidate], stage: DuplicateEvent.Stage, kind: HashCache.Kind,
+        emit: @escaping @Sendable (DuplicateEvent) -> Void,
         hash: @escaping @Sendable (String) -> String?,
         each: (Candidate, String?) -> Void = { _, _ in }
     ) async -> [Candidate: String] {
@@ -277,6 +288,7 @@ public struct DuplicateFinder: Sendable {
         let width = max(2, min(8, ProcessInfo.processInfo.activeProcessorCount))
         var results: [Candidate: String] = [:]
         var done = 0
+        let cache = hashCache
         await withTaskGroup(of: (Candidate, String?).self) { group in
             var next = 0
             func addNext() {
@@ -284,9 +296,20 @@ public struct DuplicateFinder: Sendable {
                 next += 1
                 group.addTask {
                     guard !Task.isCancelled else { return (candidate, nil) }
+                    if let cached = cache?.hash(
+                        kind, path: candidate.path, size: candidate.logical, modified: candidate.modified, inode: candidate.inode
+                    ) {
+                        return (candidate, cached)
+                    }
                     await ScanThrottle.shared.acquire()
                     let value = hash(candidate.path)
                     await ScanThrottle.shared.release()
+                    if let value {
+                        cache?.store(
+                            value, kind, path: candidate.path, size: candidate.logical, modified: candidate.modified,
+                            inode: candidate.inode
+                        )
+                    }
                     return (candidate, value)
                 }
             }
@@ -324,7 +347,10 @@ public struct DuplicateFinder: Sendable {
             guard lstat(found.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
                   info.st_flags & DirectoryWalker.datalessFlag == 0, info.st_size > 0
             else { continue }
-            result.append(Candidate(path: found.path, allocated: found.allocated, logical: Int64(info.st_size), modified: found.modified))
+            result.append(Candidate(
+                path: found.path, allocated: found.allocated, logical: Int64(info.st_size), modified: found.modified,
+                inode: found.inode
+            ))
         }
         return result
     }

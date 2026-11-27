@@ -1,4 +1,5 @@
 import MacosCleanCore
+import Synchronization
 import SwiftUI
 
 /// State of the Storage Manager: per-category scan results, lazily loaded subfolders, and the
@@ -21,7 +22,9 @@ final class StorageModel {
 
     /// Every cleanup category except the Trash, which has its own section (``TrashView``).
     let categories = CleanupCategory.all.filter { $0.id != "trash" }
-    private(set) var phases: [String: Phase] = [:]
+    private(set) var phases: [String: Phase] = [:] {
+        didSet { clearVisibleCache() }
+    }
     /// Children of folders the user expanded, keyed by folder path.
     private(set) var children: [String: [FileEntry]] = [:]
     private(set) var loadingChildren: Set<String> = []
@@ -63,11 +66,27 @@ final class StorageModel {
     @ObservationIgnored private var cooldownTask: Task<Void, Never>?
     /// The next live-refresh pass starts no earlier than this.
     @ObservationIgnored private var passQuietUntil: ContinuousClock.Instant?
+    /// FSEvents event ID taken just before each category was last measured in full. Saved
+    /// with the results, so the next launch can re-measure only what changed after it.
+    @ObservationIgnored private var measuredSince: [String: UInt64] = [:]
+    /// Replays the changes made while the app wasn't running (see ``catchUp(_:since:)``).
+    @ObservationIgnored private var catchUpWatcher: FileSystemWatcher?
+
+    /// Saved results older than this are rescanned in full at launch instead of caught up.
+    static let catchUpMaxAge: TimeInterval = 7 * 24 * 60 * 60
+    /// How long the FSEvents history replay may take before falling back to a full rescan.
+    static let catchUpTimeout = Duration.seconds(20)
 
     /// After a live re-measure, the same entries wait this many times the CPU time it used.
     /// A folder that changes nonstop (a browser's 4 GB cache) then costs at most ~5% of one
     /// core on average, while small folders still update within seconds.
     private static let remeasureCostFactor = 20.0
+
+    /// Runs scanner work at utility priority: background refreshes (launch catch-up, live
+    /// updates) then never compete for CPU and disk with the UI or a scan the person started.
+    private static func inBackground<T: Sendable>(_ work: @escaping @Sendable () async -> T) async -> T {
+        await Task.detached(priority: .utility, operation: work).value
+    }
 
     /// CPU time used by the whole process so far (all threads, user + system).
     private static func processCPUTime() -> Duration {
@@ -115,14 +134,67 @@ final class StorageModel {
 
     /// Search, size and age limits and sort order for the result rows. Only a category's own
     /// rows are filtered; the contents of an expanded folder are always shown in full.
-    var filter = EntryFilter()
+    var filter = EntryFilter() {
+        didSet {
+            clearVisibleCache()
+            // "Clear" in the filter status row empties the search field too.
+            if oldValue.query != filter.query, filter.query.isEmpty, !searchText.isEmpty { searchText = "" }
+        }
+    }
+
+    /// The search field's text. Applied to ``filter`` after a short pause in typing, so a
+    /// fast typist filters once instead of once per key; clearing applies at once.
+    var searchText = "" { didSet { scheduleQuery() } }
+    @ObservationIgnored private var queryTask: Task<Void, Never>?
+    static let searchDelay = Duration.milliseconds(150)
+
+    private func scheduleQuery() {
+        queryTask?.cancel()
+        queryTask = nil
+        let text = searchText
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else {
+            if filter.query != text { filter.query = text }
+            return
+        }
+        queryTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.searchDelay)
+            guard !Task.isCancelled, let self, filter.query != text else { return }
+            filter.query = text
+        }
+    }
+
+    /// Rows after the filter, keyed by category id. A view asks for them many times per
+    /// redraw (row list, checkbox, visibility, counts), so they're computed once per change
+    /// of ``filter`` or ``phases``.
+    @ObservationIgnored private var visibleCache: [String: [FileEntry]] = [:]
+    /// Paths of every visible row, for ``hiddenSelectedCount``.
+    @ObservationIgnored private var visiblePathsCache: Set<String>?
+
+    private func clearVisibleCache() {
+        visibleCache.removeAll(keepingCapacity: true)
+        visiblePathsCache = nil
+    }
 
     /// A result's rows after ``filter``. Without a filter or custom sort, the scan's own order.
     func visibleEntries(of result: CategoryScanResult) -> [FileEntry] {
         guard filter.isActive || filter.sort != .size else { return result.entries }
-        guard !result.simulators.isEmpty else { return filter.apply(to: result.entries) }
-        let names = Dictionary(result.simulators.map { ($0.path, $0.name) }, uniquingKeysWith: { first, _ in first })
-        return filter.apply(to: result.entries) { names[$0.path] }
+        let id = result.categoryID
+        // Only results on screen are cached; a result passed in from elsewhere is filtered fresh.
+        let isCurrent = if case .scanned(let current)? = phases[id] {
+            current.scannedAt == result.scannedAt && current.entries.count == result.entries.count
+        } else {
+            false
+        }
+        if isCurrent, let cached = visibleCache[id] { return cached }
+        let entries: [FileEntry]
+        if result.simulators.isEmpty {
+            entries = filter.apply(to: result.entries)
+        } else {
+            let names = Dictionary(result.simulators.map { ($0.path, $0.name) }, uniquingKeysWith: { first, _ in first })
+            entries = filter.apply(to: result.entries) { names[$0.path] }
+        }
+        if isCurrent { visibleCache[id] = entries }
+        return entries
     }
 
     /// Whether a category has a row to show. Every category shows while no filter is active.
@@ -146,9 +218,16 @@ final class StorageModel {
     /// Selected items a filter currently hides: neither a visible row nor inside one.
     var hiddenSelectedCount: Int {
         guard filter.isActive, !selection.units.isEmpty else { return 0 }
-        var visible = Set<String>()
-        for case .scanned(let result) in phases.values {
-            visible.formUnion(visibleEntries(of: result).lazy.map(\.path))
+        let visible: Set<String>
+        if let cached = visiblePathsCache {
+            visible = cached
+        } else {
+            var paths = Set<String>()
+            for case .scanned(let result) in phases.values {
+                paths.formUnion(visibleEntries(of: result).lazy.map(\.path))
+            }
+            visiblePathsCache = paths
+            visible = paths
         }
         return selection.units.reduce(0) { count, unit in
             if visible.contains(unit) { return count }
@@ -211,13 +290,20 @@ final class StorageModel {
         refreshing.remove(category.id)
         let progress = ScanProgress()
         liveProgress[category.id] = progress
+        let since = FileSystemWatcher.currentEventID
         let result = await scanner.scan(category, progress: progress)
         liveProgress[category.id] = nil
+        measuredSince[category.id] = since
         Motion.animate { apply(result, for: category) }
     }
 
-    /// Shows the results saved by the last run at once, then rescans those categories in the
+    /// Shows the results saved by the last run at once, then brings them up to date in the
     /// background while they stay on screen. Runs once per launch.
+    ///
+    /// Categories of plain folders are caught up from FSEvents' history: only the items that
+    /// changed since they were measured are measured again. The rest (app caches, code
+    /// projects, simulators), results that are old or empty, and every result when the
+    /// history can't be trusted are rescanned in full.
     func restoreAndRefresh() async {
         guard !didRestore else { return }
         didRestore = true
@@ -226,13 +312,69 @@ final class StorageModel {
         var restored: [CleanupCategory] = []
         let exclusions = scanner.exclusions
         for category in categories {
-            guard let saved = saved[category.id], phase(of: category) == .notScanned else { continue }
+            guard let result = saved.results[category.id], phase(of: category) == .notScanned else { continue }
             // Folders excluded since the last run stay hidden.
-            let result = saved.keeping(exclusions.filter(saved.entries))
-            apply(result, for: category, persist: false)
+            apply(result.keeping(exclusions.filter(result.entries)), for: category, persist: false)
+            if let since = saved.eventIDs[category.id] { measuredSince[category.id] = since }
             restored.append(category)
         }
-        await refreshAllInBackground(restored)
+        let sameHistory = saved.historyID != nil && saved.historyID == Self.historyID
+        let caughtUp = sameHistory ? restored.filter(canCatchUp) : []
+        if let since = caughtUp.compactMap({ measuredSince[$0.id] }).min() {
+            catchUp(caughtUp, since: since)
+        }
+        let caughtUpIDs = Set(caughtUp.map(\.id))
+        await refreshAllInBackground(restored.filter { !caughtUpIDs.contains($0.id) })
+    }
+
+    /// FSEvents' history of the home volume; saved event IDs only apply while it's the same.
+    private static let historyID = FileSystemWatcher.historyID(ofVolumeAt: NSHomeDirectory())
+
+    /// Whether a restored result can be brought up to date from FSEvents' history alone.
+    private func canCatchUp(_ category: CleanupCategory) -> Bool {
+        // Only plain folders are watched as a whole; other sources find new items elsewhere.
+        guard case .paths = category.source, measuredSince[category.id] != nil,
+              case .scanned(let result) = phase(of: category)
+        else { return false }
+        // An empty result may be a tool installed since: its folder isn't watched yet.
+        return !result.entries.isEmpty && Date().timeIntervalSince(result.scannedAt) < Self.catchUpMaxAge
+    }
+
+    /// Replays the changes FSEvents recorded under `categories`' folders since `since`, then
+    /// re-measures just those items through the live-update path. Falls back to a full
+    /// background rescan if the history reports dropped detail or doesn't arrive in time.
+    private func catchUp(_ categories: [CleanupCategory], since: UInt64) {
+        let paths = watchedRoots(of: categories)
+        guard !paths.isEmpty else { return }
+        let buffer = ChangeBuffer()
+        // Changes and the end of the history arrive in order on the watcher's queue; the
+        // buffer hands them over together.
+        let watcher = FileSystemWatcher(paths: paths, latency: 0.3, since: since, onHistoryDone: { [weak self] in
+            let changes = buffer.take()
+            Task { @MainActor in self?.finishCatchUp(categories, changes: changes) }
+        }) { changes in
+            buffer.append(changes)
+        }
+        catchUpWatcher = watcher
+        watcher.start()
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.catchUpTimeout)
+            guard let self, catchUpWatcher === watcher else { return }
+            finishCatchUp(categories, changes: nil)
+        }
+    }
+
+    /// `changes` is nil when the history didn't arrive in time.
+    private func finishCatchUp(_ categories: [CleanupCategory], changes: [FileSystemChange]?) {
+        guard catchUpWatcher != nil else { return }
+        catchUpWatcher?.stop()
+        catchUpWatcher = nil
+        guard let changes, !changes.contains(where: \.mustScanSubfolders) else {
+            let scanned = categories.filter { if case .scanned = phase(of: $0) { true } else { false } }
+            Task { await refreshAllInBackground(scanned) }
+            return
+        }
+        if !changes.isEmpty { noteChanges(changes) }
     }
 
     /// Rescans `categories` while their current results stay on screen.
@@ -282,8 +424,10 @@ final class StorageModel {
     private func refreshInBackground(_ category: CleanupCategory) async {
         // A full scan started meanwhile takes over.
         guard refreshing.contains(category.id) else { return }
-        let result = await scanner.scan(category)
+        let since = FileSystemWatcher.currentEventID
+        let result = await Self.inBackground { [scanner] in await scanner.scan(category) }
         guard refreshing.remove(category.id) != nil, case .scanned = phase(of: category) else { return }
+        measuredSince[category.id] = since
         Motion.animate { apply(result, for: category) }
     }
 
@@ -591,7 +735,8 @@ final class StorageModel {
             for (id, phase) in phases {
                 if case .scanned(let result) = phase { results[id] = result }
             }
-            await store.save(results)
+            let eventIDs = measuredSince.filter { results[$0.key] != nil }
+            await store.save(ScanResultStore.Saved(results: results, eventIDs: eventIDs, historyID: Self.historyID))
         }
     }
 
@@ -599,6 +744,20 @@ final class StorageModel {
 
     /// Watches the folders behind the results on screen. Recreated only when that set changes.
     private func updateWatcher() {
+        let paths = watchedRoots(of: categories)
+        guard paths != watcher?.paths else { return }
+        watcher?.stop()
+        watcher = nil
+        guard !paths.isEmpty else { return }
+        let created = FileSystemWatcher(paths: paths, latency: 2) { [weak self] changes in
+            Task { @MainActor in self?.noteChanges(changes) }
+        }
+        created.start()
+        watcher = created
+    }
+
+    /// The folders whose changes can affect `categories`' results on screen, sorted.
+    private func watchedRoots(of categories: [CleanupCategory]) -> [String] {
         var roots = Set<String>()
         for category in categories {
             guard case .scanned(let result) = phase(of: category) else { continue }
@@ -613,16 +772,7 @@ final class StorageModel {
                 break
             }
         }
-        let paths = roots.sorted()
-        guard paths != watcher?.paths else { return }
-        watcher?.stop()
-        watcher = nil
-        guard !paths.isEmpty else { return }
-        let created = FileSystemWatcher(paths: paths, latency: 2) { [weak self] changes in
-            Task { @MainActor in self?.noteChanges(changes) }
-        }
-        created.start()
-        watcher = created
+        return roots.sorted()
     }
 
     private func noteChanges(_ changes: [FileSystemChange]) {
@@ -742,7 +892,7 @@ final class StorageModel {
         guard case .scanned(let before) = phase(of: category) else { return }
         let known = Set(before.entries.map(\.path))
         for root in plan.roots {
-            let listing = await scanner.shallowList(URL(fileURLWithPath: root))
+            let listing = await Self.inBackground { [scanner] in await scanner.shallowList(URL(fileURLWithPath: root)) }
             guard listing.deniedPaths.isEmpty else { continue }
             let present = Set(listing.entries.map(\.path))
             vanished.formUnion(known.filter { ($0 as NSString).deletingLastPathComponent == root && !present.contains($0) })
@@ -757,7 +907,7 @@ final class StorageModel {
         let targets = remeasure.subtracting(vanished).sorted()
         // Cost is CPU time, not wall time: the walk runs on every core at once.
         let cpuBefore = Self.processCPUTime()
-        let measured = await scanner.measure(targets.map { URL(fileURLWithPath: $0) })
+        let measured = await Self.inBackground { [scanner] in await scanner.measure(targets.map { URL(fileURLWithPath: $0) }) }
         let cost = Self.processCPUTime() - cpuBefore
         let quietUntil = ContinuousClock.now + cost * Self.remeasureCostFactor
         for target in targets { nextRemeasure[target] = quietUntil }
@@ -849,9 +999,20 @@ private extension CategoryScanResult {
 /// Saves the Storage Manager's results between launches
 /// (`~/Library/Application Support/<bundle id>/scan_results.json`).
 actor ScanResultStore {
+    struct Saved: Sendable {
+        var results: [String: CategoryScanResult] = [:]
+        /// FSEvents event ID taken before each category was measured in full.
+        var eventIDs: [String: UInt64] = [:]
+        /// ``FileSystemWatcher/historyID(ofVolumeAt:)`` of the home volume when saved.
+        var historyID: String?
+    }
+
     private struct Payload: Codable {
         var version = 1
         var results: [String: CategoryScanResult]
+        // Optional: files written before these existed still load.
+        var eventIDs: [String: UInt64]?
+        var historyID: String?
     }
 
     private let url: URL?
@@ -860,16 +1021,33 @@ actor ScanResultStore {
         url = AppWatcher.defaultCacheURL?.deletingLastPathComponent().appendingPathComponent("scan_results.json")
     }
 
-    func load() -> [String: CategoryScanResult] {
+    func load() -> Saved {
         guard let url, let data = try? Data(contentsOf: url),
               let payload = try? JSONDecoder().decode(Payload.self, from: data), payload.version == 1
-        else { return [:] }
-        return payload.results
+        else { return Saved() }
+        return Saved(results: payload.results, eventIDs: payload.eventIDs ?? [:], historyID: payload.historyID)
     }
 
-    func save(_ results: [String: CategoryScanResult]) {
-        guard let url, let data = try? JSONEncoder().encode(Payload(results: results)) else { return }
+    func save(_ saved: Saved) {
+        let payload = Payload(results: saved.results, eventIDs: saved.eventIDs, historyID: saved.historyID)
+        guard let url, let data = try? JSONEncoder().encode(payload) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
+    }
+}
+
+/// Changes a watcher delivered, kept until the code that asked for them takes them all.
+private final class ChangeBuffer: Sendable {
+    private let changes = Mutex<[FileSystemChange]>([])
+
+    func append(_ batch: [FileSystemChange]) {
+        changes.withLock { $0 += batch }
+    }
+
+    func take() -> [FileSystemChange] {
+        changes.withLock { value in
+            defer { value = [] }
+            return value
+        }
     }
 }

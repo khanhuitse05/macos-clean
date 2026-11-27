@@ -40,10 +40,12 @@ public struct LargeFileScanner: Sendable {
     }
 
     /// Cancel the consuming task (or stop iterating) to stop the walk.
-    public func scan() -> AsyncStream<LargeFileEvent> {
+    /// - Parameter priority: `.userInitiated` for a scan the person started, `.utility` for a
+    ///   refresh in the background.
+    public func scan(priority: TaskPriority = .userInitiated) -> AsyncStream<LargeFileEvent> {
         let scanner = self
         return AsyncStream(bufferingPolicy: .unbounded) { continuation in
-            let task = Task.detached(priority: .utility) {
+            let task = Task.detached(priority: priority) {
                 await scanner.walk { continuation.yield($0) }
                 continuation.finish()
             }

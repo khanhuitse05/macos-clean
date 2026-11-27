@@ -43,7 +43,11 @@ final class LargeFilesModel {
 
     private(set) var visibleRows: [LargeFileRow] = []
     private(set) var isScanning = false
+    /// Rescanning in the background while the saved or earlier results stay on screen.
+    private(set) var isRefreshing = false
     private(set) var hasScanned = false
+    /// When the results on screen were found; set for finished scans and restored results.
+    private(set) var scannedAt: Date?
     private(set) var scannedCount = 0
     private(set) var deniedPaths: [String] = []
     private(set) var totalBytes: Int64 = 0
@@ -54,9 +58,41 @@ final class LargeFilesModel {
     private var allRows: [LargeFileRow] = []
     private var scanTask: Task<Void, Never>?
     private var scanGeneration = 0
+    @ObservationIgnored private var didAppear = false
+    /// The folder and size the rows on screen were found with; nil while a scan replaces them.
+    @ObservationIgnored private var resultsScope: Scope?
+
+    struct Scope: Equatable {
+        let root: String
+        let minimumMB: Int
+    }
+    @ObservationIgnored private let store = SavedResults<Saved>(fileName: "large_files.json")
+
+    /// The last finished scan, kept between launches.
+    struct Saved: Codable, Sendable {
+        var version = 1
+        var root: String
+        var minimumMB: Int
+        var scannedAt: Date
+        var files: [FileEntry]
+        var deniedPaths: [String]
+    }
 
     var rootDisplayName: String {
         root.path == NSHomeDirectory() ? "Home" : root.lastPathComponent
+    }
+
+    /// First visit this launch: shows the saved results and refreshes them in the
+    /// background, or scans when there are none.
+    func appear() async {
+        if !didAppear {
+            didAppear = true
+            if !hasScanned, await restore() {
+                refresh()
+                return
+            }
+        }
+        if !hasScanned { scan() }
     }
 
     func scan() {
@@ -65,27 +101,52 @@ final class LargeFilesModel {
         checked = []
         deniedPaths = []
         scannedCount = 0
+        scannedAt = nil
+        resultsScope = nil
         isScanning = true
         hasScanned = true
         refreshVisible()
+        run(refreshing: false)
+    }
 
+    /// Rescans while the current rows stay on screen, then swaps in the new ones at once.
+    func refresh() {
+        stop()
+        scannedCount = 0
+        isRefreshing = true
+        run(refreshing: true)
+    }
+
+    private func run(refreshing: Bool) {
         let scanner = LargeFileScanner(
             root: root, minimumBytes: Int64(minimumMB) * 1_024 * 1_024, exclusions: ExclusionStore.shared.list
         )
+        let scope = Scope(root: root.path, minimumMB: minimumMB)
         scanGeneration += 1
         let generation = scanGeneration
         scanTask = Task { [weak self] in
-            for await event in scanner.scan() {
+            var fresh: [FileEntry] = []
+            var denied: [String] = []
+            for await event in scanner.scan(priority: refreshing ? .utility : .userInitiated) {
                 guard let self, !Task.isCancelled else { break }
                 switch event {
-                case .found(let batch): insert(batch)
+                case .found(let batch):
+                    if refreshing { fresh += batch } else { insert(batch) }
                 case .progress(let scanned): scannedCount = scanned
-                case .denied(let path): deniedPaths.append(path)
-                case .finished: break
+                case .denied(let path):
+                    if refreshing { denied.append(path) } else { deniedPaths.append(path) }
+                case .finished:
+                    if refreshing { replaceRows(with: fresh, denied: denied) }
+                    scannedAt = Date()
+                    resultsScope = scope
+                    save()
                 }
             }
             // A newer scan may have replaced this one; only the current scan ends the spinner.
-            if let self, generation == scanGeneration { isScanning = false }
+            if let self, generation == scanGeneration {
+                isScanning = false
+                isRefreshing = false
+            }
         }
     }
 
@@ -93,6 +154,63 @@ final class LargeFilesModel {
         scanTask?.cancel()
         scanTask = nil
         isScanning = false
+        isRefreshing = false
+    }
+
+    private func replaceRows(with files: [FileEntry], denied: [String]) {
+        var rows = files.map(LargeFileRow.init)
+        if rows.count > Self.maxShown {
+            rows.sort { $0.sizeBytes > $1.sizeBytes }
+            rows.removeLast(rows.count - Self.maxShown)
+        }
+        rows.sort(using: sortOrder)
+        Motion.animate {
+            allRows = rows
+            deniedPaths = denied
+            checked = checked.intersection(rows.map(\.id))
+            refreshVisible()
+        }
+    }
+
+    // MARK: Saved results
+
+    /// Shows the last launch's results for the same folder and size, minus files that are gone,
+    /// changed or now excluded. Returns false when there was nothing to show.
+    private func restore() async -> Bool {
+        guard let saved = await store.load(), saved.version == 1,
+              saved.root == root.path, saved.minimumMB == minimumMB
+        else { return false }
+        let exclusions = ExclusionStore.shared.list.applying(toRoot: root.standardizedFileURL.path)
+        let minimum = Int64(minimumMB) * 1_024 * 1_024
+        let files = await Self.stillPresent(saved.files, exclusions: exclusions, minimumBytes: minimum)
+        guard !hasScanned else { return false }
+        allRows = files.map(LargeFileRow.init).sorted(using: sortOrder)
+        deniedPaths = saved.deniedPaths
+        scannedAt = saved.scannedAt
+        resultsScope = Scope(root: saved.root, minimumMB: saved.minimumMB)
+        hasScanned = true
+        refreshVisible()
+        return true
+    }
+
+    @concurrent
+    private static func stillPresent(_ files: [FileEntry], exclusions: ExclusionList, minimumBytes: Int64) async -> [FileEntry] {
+        files.compactMap { file in
+            guard !exclusions.isExcluded(file.path), let stamp = FileStamp(path: file.path),
+                  stamp.allocatedBytes >= minimumBytes
+            else { return nil }
+            return FileEntry(path: file.path, sizeBytes: stamp.allocatedBytes, isDirectory: false, modified: stamp.modified)
+        }
+    }
+
+    /// Saves the rows on screen, once a scan has finished (never a partial one).
+    private func save() {
+        guard let scannedAt, let resultsScope else { return }
+        let saved = Saved(
+            root: resultsScope.root, minimumMB: resultsScope.minimumMB, scannedAt: scannedAt,
+            files: allRows.map(\.entry), deniedPaths: deniedPaths
+        )
+        Task { await store.save(saved) }
     }
 
     private func insert(_ batch: [FileEntry]) {
@@ -124,6 +242,7 @@ final class LargeFilesModel {
             checked.subtract(hidden)
             refreshVisible()
         }
+        save()
     }
 
     // MARK: Selection
@@ -159,5 +278,6 @@ final class LargeFilesModel {
         allRows.removeAll { gone.contains($0.id) }
         checked.subtract(gone)
         refreshVisible()
+        save()
     }
 }

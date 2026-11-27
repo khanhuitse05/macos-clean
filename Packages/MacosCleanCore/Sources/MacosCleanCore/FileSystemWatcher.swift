@@ -17,20 +17,45 @@ public struct FileSystemChange: Sendable, Equatable {
 /// Watches folder trees with FSEvents and reports which folders changed, coalesced over
 /// `latency`. Changes made by this process (moving items to the Trash) are ignored; callers
 /// update their own state for those.
+///
+/// Given `since`, it first replays the changes FSEvents recorded after that event ID (even
+/// while the app wasn't running), then calls `onHistoryDone` once, on the same queue as the
+/// handler and after every replayed change was handed to it.
 public final class FileSystemWatcher: @unchecked Sendable {
     public typealias Handler = @Sendable ([FileSystemChange]) -> Void
 
     public let paths: [String]
     private let latency: TimeInterval
+    private let since: UInt64?
+    private let onHistoryDone: (@Sendable () -> Void)?
     private let handler: Handler
     private let queue = DispatchQueue(label: "com.goldenowl.macos-clean.fsevents", qos: .utility)
     // Only touched on `queue`.
     private var stream: FSEventStreamRef?
 
-    public init(paths: [String], latency: TimeInterval = 2, handler: @escaping Handler) {
+    public init(
+        paths: [String], latency: TimeInterval = 2, since: UInt64? = nil,
+        onHistoryDone: (@Sendable () -> Void)? = nil, handler: @escaping Handler
+    ) {
         self.paths = paths
         self.latency = latency
+        self.since = since
+        self.onHistoryDone = onHistoryDone
         self.handler = handler
+    }
+
+    /// The most recent FSEvents event ID on this Mac. Saved with results measured after it,
+    /// a later launch can ask for every change since (`since:`).
+    public static var currentEventID: UInt64 { FSEventsGetCurrentEventId() }
+
+    /// FSEvents' identifier for the event history of the volume holding `path`. Event IDs
+    /// saved earlier only mean something while this stays the same.
+    public static func historyID(ofVolumeAt path: String) -> String? {
+        var info = stat()
+        guard stat(path, &info) == 0, let uuid = FSEventsCopyUUIDForDevice(info.st_dev) else {
+            return nil
+        }
+        return CFUUIDCreateString(nil, uuid) as String?
     }
 
     deinit {
@@ -51,7 +76,7 @@ public final class FileSystemWatcher: @unchecked Sendable {
             )
             guard let created = FSEventStreamCreate(
                 kCFAllocatorDefault, Self.callback, &context, paths as CFArray,
-                FSEventStreamEventId(kFSEventStreamEventIdSinceNow), latency, flags
+                since ?? FSEventStreamEventId(kFSEventStreamEventIdSinceNow), latency, flags
             ) else { return }
             FSEventStreamSetDispatchQueue(created, queue)
             FSEventStreamStart(created)
@@ -77,13 +102,20 @@ public final class FileSystemWatcher: @unchecked Sendable {
         changes.reserveCapacity(count)
         let rescan = FSEventStreamEventFlags(
             kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagRootChanged | kFSEventStreamEventFlagMount
-                | kFSEventStreamEventFlagUnmount
+                | kFSEventStreamEventFlagUnmount | kFSEventStreamEventFlagEventIdsWrapped
         )
+        let historyDone = FSEventStreamEventFlags(kFSEventStreamEventFlagHistoryDone)
+        var sawHistoryDone = false
         for index in 0..<count {
+            if rawFlags[index] & historyDone != 0 {
+                sawHistoryDone = true
+                continue
+            }
             guard var path = paths[index] as? String else { continue }
             while path.count > 1, path.hasSuffix("/") { path.removeLast() }
             changes.append(FileSystemChange(path: path, mustScanSubfolders: rawFlags[index] & rescan != 0))
         }
         if !changes.isEmpty { watcher.handler(changes) }
+        if sawHistoryDone { watcher.onHistoryDone?() }
     }
 }
