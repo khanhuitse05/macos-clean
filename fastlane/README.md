@@ -63,13 +63,21 @@ Update web/index.html version, commit, and push so GitHub Pages deploys
 
 Upload macos-clean.dmg to GitHub Releases via gh CLI
 
+### mac homebrew_cask
+
+```sh
+[bundle exec] fastlane mac homebrew_cask
+```
+
+Bump version and sha256 in the Homebrew tap cask, then commit and push it
+
 ### mac release
 
 ```sh
 [bundle exec] fastlane mac release
 ```
 
-Full release pipeline: test -> Developer ID build -> notarize & DMG -> update web & push -> GitHub Release
+Full release pipeline: test -> Developer ID build -> notarize & DMG -> update web & push -> GitHub Release -> Homebrew cask
 
 ----
 

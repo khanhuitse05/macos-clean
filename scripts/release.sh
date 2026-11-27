@@ -11,6 +11,7 @@ SKIP_NOTARIZE="false"
 BUILD_ONLY="false"
 SKIP_PUSH="false"
 SKIP_GITHUB_RELEASE="false"
+SKIP_HOMEBREW="false"
 DRAFT="false"
 PRERELEASE="false"
 
@@ -26,6 +27,7 @@ Options:
   --build-only            Build, sign, and package DMG locally without publishing or creating a GitHub Release
   --skip-push             Commit web/version updates locally without pushing to origin/main
   --skip-github-release   Skip creating/updating GitHub Release on macos-clean
+  --skip-homebrew         Skip bumping the cask in khanhuitse05/homebrew-tap
   --draft                 Create GitHub Release as a draft
   --prerelease            Mark GitHub Release as a prerelease
   -h, --help              Show this help
@@ -62,6 +64,10 @@ while [[ $# -gt 0 ]]; do
       SKIP_GITHUB_RELEASE="true"
       shift
       ;;
+    --skip-homebrew)
+      SKIP_HOMEBREW="true"
+      shift
+      ;;
     --draft)
       DRAFT="true"
       shift
@@ -89,6 +95,7 @@ FASTLANE_ARGS=()
 [[ "$SKIP_NOTARIZE" == "true" ]] && FASTLANE_ARGS+=("notarize:false")
 [[ "$SKIP_PUSH" == "true" ]] && FASTLANE_ARGS+=("skip_push:true")
 [[ "$SKIP_GITHUB_RELEASE" == "true" ]] && FASTLANE_ARGS+=("skip_github_release:true")
+[[ "$SKIP_HOMEBREW" == "true" ]] && FASTLANE_ARGS+=("skip_homebrew:true")
 [[ "$DRAFT" == "true" ]] && FASTLANE_ARGS+=("draft:true")
 [[ "$PRERELEASE" == "true" ]] && FASTLANE_ARGS+=("prerelease:true")
 

@@ -17,40 +17,38 @@ A native macOS 26 utility built with Swift 6 and SwiftUI. It finds caches, devel
 
 <br />
 
-<img src="resources/Screenshot.png" alt="macOS Clean Storage Manager showing 159.67 GB of reclaimable caches, logs and developer files, split into Safe and Caution tiers" width="900" />
+<img src="resources/demo.gif" alt="macOS Clean demo: Storage Manager scanning caches and developer files, then File Browser and Uninstaller" width="900" />
 
 </div>
 
-## Why macOS Clean?
-
-- **Built for developers**: finds Xcode, simulator, package-manager and Docker leftovers in one scan.
-- **Safe by default**: everything goes to the Trash first.
-- **Private**: 100% local, no telemetry. The only network request is the update check, and only when you click it.
-- **Native**: pure SwiftUI, no web view.
-
 ## Features
 
-- **Storage Manager**: 38 cleanup categories (caches, logs, Xcode, simulators, SwiftPM/npm/Bun/uv/Go/Homebrew/Gradle/Cargo, Docker, Ollama/LM Studio, git project leftovers) in **Safe** and **Caution** tiers, with search, size and age filters.
-- **Large Files**: fast scan with size thresholds, exclusions and Quick Look.
-- **Duplicates**: finds identical files by size and `CryptoKit` hash, skipping hard links.
-- **File Browser**: multi-column view with instant folder sizes.
-- **Uninstaller**: removes apps with their preferences, caches and logs, using Strict, Enhanced or Deep matching. It also finds leftovers of apps deleted long ago, and adds an "Uninstall with macOS Clean" item to Finder's Services menu.
-- **Trash & History**: empty the Trash in-app, review past cleanups, and meet **Bubbl**, the mascot.
-- **Menu bar monitor** (optional): free disk space, CPU or memory in the menu bar, with all three a click away.
-- **Settings**: appearance (System, Light, Dark), Full Disk Access status, excluded folders, update check, and links to the GitHub repository and issue tracker.
+- **Storage Manager**: 38 cleanup categories in one scan: app caches and logs, Xcode and simulators, Docker, local AI models (Ollama, LM Studio), package managers (npm, Bun, uv, SwiftPM, Go, Cargo, Gradle, Homebrew) and code-project leftovers.
+- **Large Files**: find big files fast, with size filters, excluded folders and Quick Look.
+- **Duplicates**: finds exact copies by content hash and skips hard links.
+- **File Browser**: Finder-style columns with folder sizes.
+- **Uninstaller**: removes an app with its preferences, caches and logs, and finds leftovers of apps you deleted long ago. Also in Finder: right-click an app › **Services** › **Uninstall with macOS Clean**.
+- **Trash & History**: empty the Trash and review past cleanups.
+- **Menu bar monitor** (optional): free space, CPU or memory at a glance.
 
 ## Safety & Privacy
 
-- **Safe vs. Caution**: Safe items are pre-selected; Caution items never are.
-- **Trash-first**: nothing is deleted directly, and protected system and home paths are refused.
-- **One deletion path**: only emptying the Trash is permanent, and it can't touch anything outside `~/.Trash`.
-- **100% local**: no analytics or telemetry. macOS Clean contacts GitHub only when you click **Check for Updates** in Settings › About, and sends nothing about you or your Mac.
+- **Trash first**: nothing is deleted directly. Only emptying the Trash is permanent, and that can't touch anything outside `~/.Trash`.
+- **Safe vs. Caution**: Safe items are pre-selected. Caution items are only cleaned if you tick them.
+- **Protected paths**: system and protected home folders are always refused.
+- **100% local**: no analytics or telemetry. The only network request is **Check for Updates** in Settings › About, and only when you click it.
 
 ## Download & Install
 
 Requires macOS 26+. Universal binary (Apple Silicon & Intel), Developer ID signed and notarized.
 
-1. Download `macos-clean.dmg` from [GitHub Releases](https://github.com/khanhuitse05/macos-clean/releases/latest) and drag **macOS Clean.app** into `/Applications`.
+1. Install with [Homebrew](https://brew.sh):
+
+   ```bash
+   brew install --cask khanhuitse05/tap/macos-clean
+   ```
+
+   Or download `macos-clean.dmg` from [GitHub Releases](https://github.com/khanhuitse05/macos-clean/releases/latest) and drag **macOS Clean.app** into `/Applications`.
 2. Grant **Full Disk Access** in **System Settings › Privacy & Security** so it can scan protected caches.
 3. Reopen the app and run a scan.
 

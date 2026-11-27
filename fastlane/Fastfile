@@ -15,6 +15,9 @@ WEB_INDEX_HTML = File.join(ROOT_DIR, "web", "index.html")
 
 DEFAULT_SIGNING_IDENTITY = "Developer ID Application: To Ngoc Khanh (N8L3QK9894)"
 DEFAULT_GITHUB_REPO = "khanhuitse05/macos-clean"
+DEFAULT_HOMEBREW_TAP_REPO = "khanhuitse05/homebrew-tap"
+HOMEBREW_CASK_PATH = "Casks/macos-clean.rb"
+HOMEBREW_TAP_DIR = File.join(RELEASE_DIR, "homebrew-tap")
 
 def read_project_setting(key)
   content = File.read(PROJECT_YML)
@@ -260,11 +263,56 @@ platform :mac do
     end
   end
 
-  desc "Full release pipeline: test -> Developer ID build -> notarize & DMG -> update web & push -> GitHub Release"
+  desc "Bump version and sha256 in the Homebrew tap cask, then commit and push it"
+  lane :homebrew_cask do |options|
+    UI.user_error!("Missing #{SHA_PATH}. Run `fastlane package_dmg` first.") unless File.exist?(SHA_PATH)
+
+    version = options[:version]&.to_s || read_project_setting("MARKETING_VERSION")
+    sha = File.read(SHA_PATH).split.first
+    UI.user_error!("Invalid SHA-256 in #{SHA_PATH}") unless sha =~ /\A[0-9a-f]{64}\z/
+    tap_repo = ENV.fetch("HOMEBREW_TAP_REPO", DEFAULT_HOMEBREW_TAP_REPO)
+
+    FileUtils.rm_rf(HOMEBREW_TAP_DIR)
+    sh("gh", "repo", "clone", tap_repo, HOMEBREW_TAP_DIR, "--", "--depth", "1")
+
+    cask_file = File.join(HOMEBREW_TAP_DIR, HOMEBREW_CASK_PATH)
+    UI.user_error!("Cask not found at #{tap_repo}/#{HOMEBREW_CASK_PATH}") unless File.exist?(cask_file)
+
+    cask = File.read(cask_file)
+    updated = cask
+      .sub(/^(\s*version\s+)"[^"]*"/, "\\1\"#{version}\"")
+      .sub(/^(\s*sha256\s+)"[^"]*"/, "\\1\"#{sha}\"")
+    unless updated.include?(%(version "#{version}")) && updated.include?(%(sha256 "#{sha}"))
+      UI.user_error!("Could not update version/sha256 in #{HOMEBREW_CASK_PATH}")
+    end
+
+    if updated == cask
+      UI.message("Homebrew cask already at v#{version}; nothing to push")
+      next
+    end
+
+    Dir.chdir(HOMEBREW_TAP_DIR) do
+      File.write(cask_file, updated)
+      sh("git", "add", HOMEBREW_CASK_PATH)
+      sh("git", "commit", "-m", "macos-clean #{version}")
+      sh("git", "push", "origin", "HEAD")
+    end
+
+    UI.success("Homebrew cask updated: brew install --cask #{tap_repo.sub('/homebrew-', '/')}/macos-clean")
+  end
+
+  desc "Full release pipeline: test -> Developer ID build -> notarize & DMG -> update web & push -> GitHub Release -> Homebrew cask"
   lane :release do |options|
     build(options)
     package_dmg(options)
     publish_release(options)
     github_release(options) unless options[:skip_github_release]
+
+    # Only bump the cask once the DMG is publicly downloadable from a non-draft, non-prerelease release.
+    if options[:skip_homebrew] || options[:skip_github_release] || options[:draft] || options[:prerelease]
+      UI.important("Skipping Homebrew cask update")
+    else
+      homebrew_cask(options)
+    end
   end
 end

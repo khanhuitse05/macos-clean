@@ -394,6 +394,15 @@ button {
   color: var(--text-tertiary);
 }
 
+.hero-brew {
+  margin-top: 6px;
+}
+
+.hero-brew code {
+  color: var(--text-secondary);
+  user-select: all;
+}
+
 /* Interactive macOS 26 App Window */
 .showcase-wrap {
   margin-top: 44px;
