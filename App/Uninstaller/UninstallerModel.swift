@@ -57,6 +57,28 @@ final class UninstallerModel {
     private(set) var visibleOrphans: [OrphanApp] = []
     private(set) var isFindingOrphans = false
 
+    /// Mirrors ``AccessModel/hasFullDiskAccess``. Without it macOS refuses to move other apps'
+    /// containers, so leftovers there can't be removed.
+    var hasFullDiskAccess = true {
+        didSet {
+            guard hasFullDiskAccess != oldValue else { return }
+            // What can be removed changed: forget the ticks and failures based on the old state.
+            blockedPaths = []
+            for id in leftovers.keys where Self.isOrphanID(id) {
+                leftovers[id] = nil
+                checked[id] = nil
+            }
+            if let item = selectedItem, case .orphan = item { Task { await loadLeftovers(for: item) } }
+        }
+    }
+
+    /// Leftover files macOS refused to move this session. They're treated as locked until
+    /// Full Disk Access changes or the app is relaunched.
+    private(set) var blockedPaths: Set<String> = []
+
+    /// Leftovers smaller than this are folded into one row.
+    static let smallOrphanLimit: Int64 = 1_000_000
+
     /// How widely leftovers are looked for. Changing it rescans the open app.
     var sensitivity: MatchSensitivity = UninstallerModel.savedSensitivity {
         didSet {
@@ -70,7 +92,35 @@ final class UninstallerModel {
 
     var searchText = "" { didSet { refreshVisible() } }
     var sortOrder: SortOrder = .name { didSet { refreshVisible() } }
-    var selectedID: String?
+
+    /// The rows selected in the list. Several rows can be selected only among leftovers of
+    /// deleted apps; picking an app or a removed app selects it alone.
+    var selection: Set<String> = [] {
+        didSet {
+            guard selection != oldValue else { return }
+            let normalized = Self.normalized(selection, previous: oldValue)
+            if normalized != selection { selection = normalized }
+        }
+    }
+
+    /// The single selected row, or nil when nothing or several rows are selected.
+    var selectedID: String? {
+        get { selection.count == 1 ? selection.first : nil }
+        set { selection = newValue.map { [$0] } ?? [] }
+    }
+
+    private static func isOrphanID(_ id: String) -> Bool { id.hasPrefix("orphan:") }
+
+    /// Keeps a multiple selection made of leftovers only. When an app joins several selected
+    /// rows, the row just clicked wins; a Select All keeps just the leftovers.
+    private static func normalized(_ selection: Set<String>, previous: Set<String>) -> Set<String> {
+        guard selection.count > 1, !selection.allSatisfy(isOrphanID) else { return selection }
+        let added = selection.subtracting(previous)
+        if added.count == 1 { return added }
+        let orphans = selection.filter(isOrphanID)
+        if !orphans.isEmpty { return orphans }
+        return (added.first ?? selection.first).map { [$0] } ?? []
+    }
 
     private(set) var sizes: [String: Int64] = [:]
     /// When each app was last opened, from Spotlight, keyed by bundle path. Missing when
@@ -134,7 +184,7 @@ final class UninstallerModel {
             + orphans.map { UninstallItem.orphan($0).id })
         leftovers = leftovers.filter { liveIDs.contains($0.key) }
         checked = checked.filter { liveIDs.contains($0.key) }
-        if let selectedID, !liveIDs.contains(selectedID) { self.selectedID = nil }
+        if !selection.isSubset(of: liveIDs) { selection.formIntersection(liveIDs) }
         refreshVisible()
         computeSizes()
         loadLastUsedDates()
@@ -163,7 +213,8 @@ final class UninstallerModel {
             isFindingOrphans = false
             let live = Set(found.map { UninstallItem.orphan($0).id })
             leftovers = leftovers.filter { !$0.key.hasPrefix("orphan:") || live.contains($0.key) }
-            if let selectedID, selectedID.hasPrefix("orphan:"), !live.contains(selectedID) { self.selectedID = nil }
+            let stale = selection.filter { Self.isOrphanID($0) && !live.contains($0) }
+            if !stale.isEmpty { selection.subtract(stale) }
             refreshVisible()
         }
     }
@@ -187,7 +238,7 @@ final class UninstallerModel {
         let id = UninstallItem.orphan(orphan).id
         leftovers[id] = nil
         checked[id] = nil
-        if selectedID == id { selectedID = nil }
+        selection.remove(id)
         refreshVisible()
     }
 
@@ -296,10 +347,11 @@ final class UninstallerModel {
         loadingLeftovers.remove(item.id)
         let result = Self.removingExcluded(scanned, keeping: item.appURL, exclusions: ExclusionStore.shared.list)
         leftovers[item.id] = result
-        // Orphans are a guess, so nothing starts ticked. Otherwise everything except Supporting
-        // Files (may hold the user's own documents) and name-only matches starts ticked.
+        // An orphan's files are all named after the deleted app, so they all start ticked.
+        // Otherwise everything except Supporting Files (may hold the user's own documents) and
+        // name-only matches starts ticked.
         if case .orphan = item {
-            checked[item.id] = []
+            checked[item.id] = Set(result.allEntries.map(\.path).filter(canRemove))
         } else {
             checked[item.id] = Set(result.groups.filter { !$0.kind.startsUnchecked }.flatMap { $0.entries.map(\.path) })
         }
@@ -344,20 +396,27 @@ final class UninstallerModel {
     }
 
     func toggle(_ entry: FileEntry, in item: UninstallItem) {
+        guard canCheck(entry, in: item) else { return }
         var set = checked[item.id] ?? []
         if set.remove(entry.path) == nil { set.insert(entry.path) }
         checked[item.id] = set
     }
 
+    /// Whether the user can tick this file. Locked files of deleted apps can't be.
+    func canCheck(_ entry: FileEntry, in item: UninstallItem) -> Bool {
+        if case .orphan = item { canRemove(entry.path) } else { true }
+    }
+
     func state(of group: LeftoverGroup, in item: UninstallItem) -> CheckState {
         let set = checked[item.id] ?? []
-        let count = group.entries.count { set.contains($0.path) }
-        return count == 0 ? .off : (count == group.entries.count ? .on : .mixed)
+        let entries = group.entries.filter { canCheck($0, in: item) }
+        let count = entries.count { set.contains($0.path) }
+        return count == 0 ? .off : (count == entries.count ? .on : .mixed)
     }
 
     func toggle(_ group: LeftoverGroup, in item: UninstallItem) {
         var set = checked[item.id] ?? []
-        let paths = group.entries.map(\.path)
+        let paths = group.entries.filter { canCheck($0, in: item) }.map(\.path)
         if state(of: group, in: item) == .on { set.subtract(paths) } else { set.formUnion(paths) }
         checked[item.id] = set
     }
@@ -375,6 +434,106 @@ final class UninstallerModel {
     func isRunning(_ item: UninstallItem) -> Bool {
         guard case .app(let app) = item, app.hasRealBundleID else { return false }
         return !NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID).isEmpty
+    }
+
+    // MARK: Leftovers of deleted apps, together
+
+    /// The selected leftovers of deleted apps, in list order.
+    var selectedOrphans: [OrphanApp] {
+        orphans.filter { selection.contains(UninstallItem.orphan($0).id) }
+    }
+
+    /// Selects every leftover that can be removed now, small ones included.
+    func selectAllOrphans() {
+        selection = Set(visibleOrphans.filter { !isLocked($0) }.map { UninstallItem.orphan($0).id })
+    }
+
+    /// Visible leftovers that can be removed now, at least ``smallOrphanLimit`` in size.
+    var largeOrphans: [OrphanApp] {
+        visibleOrphans.filter { !isLocked($0) && $0.bytes >= Self.smallOrphanLimit }
+    }
+
+    /// Visible leftovers that can be removed now, below ``smallOrphanLimit``.
+    var smallOrphans: [OrphanApp] {
+        visibleOrphans.filter { !isLocked($0) && $0.bytes < Self.smallOrphanLimit }
+    }
+
+    /// Visible leftovers with files macOS won't let us move.
+    var lockedOrphans: [OrphanApp] { visibleOrphans.filter(isLocked) }
+
+    /// Inside another app's sandbox container, which macOS protects unless the app has Full
+    /// Disk Access.
+    nonisolated static func isProtectedContainer(_ path: String) -> Bool {
+        let library = (NSHomeDirectory() as NSString).appendingPathComponent("Library")
+        return ["Containers", "Group Containers"].contains {
+            path.hasPrefix((library as NSString).appendingPathComponent($0) + "/")
+        }
+    }
+
+    /// Whether a leftover file of a deleted app can be moved to the Trash right now.
+    func canRemove(_ path: String) -> Bool {
+        !blockedPaths.contains(path) && (hasFullDiskAccess || !Self.isProtectedContainer(path))
+    }
+
+    /// Some of the leftover's files can't be removed right now.
+    func isLocked(_ orphan: OrphanApp) -> Bool {
+        !orphan.paths.allSatisfy(canRemove)
+    }
+
+    /// What removing `orphan` together with others moves: the ticked files when it was opened,
+    /// otherwise every file that can be removed.
+    func pathsToRemove(_ orphan: OrphanApp) -> (paths: [String], bytes: Int64) {
+        let item = UninstallItem.orphan(orphan)
+        guard leftovers[item.id] != nil else {
+            let paths = orphan.paths.filter(canRemove)
+            // Per-file sizes come with the scan (started by the pane); until then, estimate.
+            return (paths, paths.isEmpty ? 0 : orphan.bytes)
+        }
+        let entries = checkedEntries(for: item).filter { canRemove($0.path) }
+        return (entries.map(\.path), entries.reduce(0) { $0 + $1.sizeBytes })
+    }
+
+    /// Records files macOS refused to move so their leftovers show as locked.
+    private func noteFailures(_ summary: CleanSummary) {
+        let failed = summary.failures.map(\.path)
+        if !failed.isEmpty { blockedPaths.formUnion(failed) }
+    }
+
+    func orphansRequest(for targets: [OrphanApp]) -> TrashCoordinator.Request? {
+        let parts = targets.map(pathsToRemove)
+        let paths = parts.flatMap(\.paths)
+        guard !paths.isEmpty else { return nil }
+        let bytes = parts.reduce(0) { $0 + $1.bytes }
+        let size = bytes.formatted(.byteCount(style: .file))
+        let apps = targets.count { !pathsToRemove($0).paths.isEmpty }
+        return TrashCoordinator.Request(
+            paths: paths,
+            title: "Move leftovers of \(apps) deleted \(apps == 1 ? "app" : "apps") (\(size)) to the Trash?",
+            message: "\(paths.count) \(paths.count == 1 ? "item" : "items") will move to the Trash. You can restore them from the Trash until you empty it.",
+            confirmTitle: "Move to Trash",
+            bytes: bytes,
+            onFinish: { [weak self] summary in
+                self?.finishOrphans(targets, summary: summary)
+            }
+        )
+    }
+
+    private func finishOrphans(_ targets: [OrphanApp], summary: CleanSummary) {
+        noteFailures(summary)
+        let gone = summary.trashedPaths
+        var anyLeft = false
+        for orphan in targets {
+            if orphan.paths.allSatisfy(gone.contains) {
+                drop(orphan)
+            } else if orphan.paths.contains(where: gone.contains) {
+                let id = UninstallItem.orphan(orphan).id
+                leftovers[id] = nil
+                checked[id] = nil
+                anyLeft = true
+            }
+        }
+        // Sizes and item counts of partly removed leftovers are stale; look again.
+        if anyLeft { findOrphans() }
     }
 
     // MARK: Uninstall
@@ -424,6 +583,10 @@ final class UninstallerModel {
     }
 
     private func finishUninstall(_ item: UninstallItem, summary: CleanSummary) async {
+        if case .orphan = item {
+            noteFailures(summary)
+            checked[item.id]?.subtract(summary.failures.map(\.path))
+        }
         let gone = summary.trashedPaths
         if let current = leftovers[item.id] {
             let groups = current.groups.compactMap { group -> LeftoverGroup? in

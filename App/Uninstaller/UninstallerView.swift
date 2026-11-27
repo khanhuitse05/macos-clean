@@ -9,12 +9,14 @@ struct UninstallerView: View {
 
     var body: some View {
         HSplitView {
-            AppListPane(model: model)
+            AppListPane(model: model, access: access)
                 .frame(minWidth: 250, idealWidth: 300, maxWidth: 420)
             Group {
                 if let item = model.selectedItem {
                     AppDetailPane(item: item, model: model, trash: trash, access: access)
                         .id(item.id)
+                } else if model.selection.count > 1 {
+                    OrphansDetailPane(orphans: model.selectedOrphans, model: model, trash: trash)
                 } else {
                     ContentUnavailableView(
                         "Select an App",
@@ -60,14 +62,59 @@ struct UninstallerView: View {
             Text(model.errorMessage ?? "")
         }
         .task { model.start() }
+        .onChange(of: access.hasFullDiskAccess, initial: true) { model.hasFullDiskAccess = $1 }
+    }
+}
+
+/// A row that shows or hides the rows after it.
+private struct FoldRow: View {
+    @Binding var isExpanded: Bool
+    let title: String
+    let detail: String
+
+    var body: some View {
+        Button {
+            withAnimation(.snappy) { isExpanded.toggle() }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .frame(width: 28)
+                Text(isExpanded ? "Hide \(title)" : "Show \(title)").lineLimit(1)
+                Spacer(minLength: 6)
+                Text(detail).monospacedDigit()
+            }
+            .foregroundStyle(.secondary)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .selectionDisabled()
     }
 }
 
 private struct AppListPane: View {
     @Bindable var model: UninstallerModel
+    let access: AccessModel
+
+    @State private var showsSmallOrphans = false
+    @State private var showsLockedOrphans = false
+
+    private func orphanRows(_ orphans: [OrphanApp]) -> some View {
+        ForEach(orphans) { orphan in
+            OrphanRow(orphan: orphan, isLocked: model.isLocked(orphan))
+                .tag(UninstallItem.orphan(orphan).id)
+                .contextMenu {
+                    Button("Show in Finder", systemImage: "folder") { FileActions.reveal(orphan.paths) }
+                    Button("Select All Leftovers", systemImage: "checklist") { model.selectAllOrphans() }
+                    Divider()
+                    Button("Ignore", systemImage: "eye.slash") { model.ignore(orphan) }
+                }
+        }
+    }
 
     var body: some View {
-        List(selection: $model.selectedID) {
+        List(selection: $model.selection) {
             if let gone = model.justRemoved {
                 RemovedBanner(name: gone.name, onShow: model.showJustRemoved, onDismiss: model.dismissBanner)
                     .listRowSeparator(.hidden)
@@ -85,22 +132,66 @@ private struct AppListPane: View {
                 }
             }
             if !model.visibleOrphans.isEmpty || model.isFindingOrphans {
+                let large = model.largeOrphans
+                let small = model.smallOrphans
+                let removable = large.count + small.count
+                // While searching, everything that matches is shown.
+                let isSearching = !model.searchText.isEmpty
                 Section {
                     if model.isFindingOrphans && model.visibleOrphans.isEmpty {
                         HStack { ProgressView().controlSize(.small); Text("Looking for leftovers…").foregroundStyle(.secondary) }
                             .selectionDisabled()
                     }
-                    ForEach(model.visibleOrphans) { orphan in
-                        OrphanRow(orphan: orphan)
-                            .tag(UninstallItem.orphan(orphan).id)
-                            .contextMenu {
-                                Button("Show in Finder", systemImage: "folder") { FileActions.reveal(orphan.paths) }
-                                Button("Ignore", systemImage: "eye.slash") { model.ignore(orphan) }
-                            }
+                    orphanRows(large)
+                    if !small.isEmpty {
+                        if !isSearching {
+                            FoldRow(
+                                isExpanded: $showsSmallOrphans,
+                                title: "\(small.count) small \(small.count == 1 ? "leftover" : "leftovers")",
+                                detail: small.reduce(0) { $0 + $1.bytes }.fileSize
+                            )
+                            .help("Leftovers under \(UninstallerModel.smallOrphanLimit.fileSize) each")
+                        }
+                        if showsSmallOrphans || isSearching { orphanRows(small) }
                     }
                 } header: {
-                    Text("Leftovers of Deleted Apps")
-                        .help("Files named after apps that are no longer on this Mac. Review each one: nothing is ticked for you.")
+                    HStack {
+                        Text("Leftovers of Deleted Apps")
+                            .help("Files named after apps that are no longer on this Mac. Command-click to select several.")
+                        Spacer()
+                        if removable > 1 {
+                            Button("Select All") { model.selectAllOrphans() }
+                                .buttonStyle(.borderless)
+                                .font(.caption)
+                                .help("Select every leftover that can be removed, small ones included")
+                        }
+                    }
+                }
+                let locked = model.lockedOrphans
+                if !locked.isEmpty {
+                    Section {
+                        if !isSearching {
+                            FoldRow(
+                                isExpanded: $showsLockedOrphans,
+                                title: "\(locked.count) \(locked.count == 1 ? "leftover" : "leftovers") macOS won't let us move",
+                                detail: locked.reduce(0) { $0 + $1.bytes }.fileSize
+                            )
+                        }
+                        if showsLockedOrphans || isSearching { orphanRows(locked) }
+                    } header: {
+                        HStack {
+                            Text(model.hasFullDiskAccess ? "Couldn't Be Moved" : "Needs Full Disk Access")
+                                .help(model.hasFullDiskAccess
+                                      ? "macOS refused to move these files. Try again after relaunching macOS Clean."
+                                      : "macOS protects other apps' containers. Turn on Full Disk Access to remove these.")
+                            Spacer()
+                            if !model.hasFullDiskAccess {
+                                Button("Grant Access") { access.openSettings() }
+                                    .buttonStyle(.borderless)
+                                    .font(.caption)
+                            }
+                        }
+                    }
                 }
             }
             Section("Applications") {
@@ -197,6 +288,7 @@ private struct AppRow: View {
 
 private struct OrphanRow: View {
     let orphan: OrphanApp
+    let isLocked: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -211,12 +303,18 @@ private struct OrphanRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 6)
+            if isLocked {
+                Image(systemName: "lock.fill")
+                    .foregroundStyle(.secondary)
+                    .help("Some of these files can't be moved right now")
+            }
             Text(orphan.bytes.fileSize)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
         }
         .padding(.vertical, 2)
+        .opacity(isLocked ? 0.6 : 1)
     }
 }
 
@@ -268,6 +366,10 @@ private struct AppDetailPane: View {
                     }
                     .listRowSeparator(.hidden)
                 }
+                if case .orphan(let orphan) = item, model.isLocked(orphan) {
+                    LockedLeftoversNote(hasFullDiskAccess: model.hasFullDiskAccess, access: access)
+                        .listRowSeparator(.hidden)
+                }
                 if leftovers.groups.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
                         Label("No leftover files found", systemImage: "sparkles")
@@ -306,12 +408,19 @@ private struct AppDetailPane: View {
                     TriStateCheckbox(state: model.isChecked(entry, in: item) ? .on : .off) {
                         model.toggle(entry, in: item)
                     }
+                    .disabled(!model.canCheck(entry, in: item))
                     FileIcon(path: entry.path, isDirectory: entry.isDirectory)
                     Text(entry.path.abbreviatingHome)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .help(entry.path)
                     Spacer(minLength: 8)
+                    if !model.canCheck(entry, in: item) {
+                        Image(systemName: "lock.fill")
+                            .foregroundStyle(.secondary)
+                            .help(model.hasFullDiskAccess ? "macOS refused to move this item"
+                                                          : "macOS protects this app container. Turn on Full Disk Access to remove it.")
+                    }
                     Text(entry.sizeBytes.fileSize).foregroundStyle(.secondary).monospacedDigit()
                 }
                 .contextMenu {
@@ -414,12 +523,117 @@ private struct AppHeader: View {
                 case .orphan(let orphan):
                     Text("\(orphan.bytes.fileSize) · no app on this Mac uses this identifier")
                         .foregroundStyle(.secondary)
-                    Text("Probably left by an app deleted earlier. Nothing is ticked: check each item before removing it.")
+                    Text("Probably left by an app deleted earlier. Untick anything you want to keep.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
             }
         }
         .padding(.vertical, 8)
+    }
+}
+
+/// Several leftovers of deleted apps selected at once, removed together.
+private struct OrphansDetailPane: View {
+    let orphans: [OrphanApp]
+    let model: UninstallerModel
+    let trash: TrashCoordinator
+
+    @State private var trashButton = FrameBox()
+
+    var body: some View {
+        let parts = orphans.map { (orphan: $0, removal: model.pathsToRemove($0)) }
+        let bytes = parts.reduce(0) { $0 + $1.removal.bytes }
+        let count = parts.reduce(0) { $0 + $1.removal.paths.count }
+        List {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: "questionmark.app.dashed")
+                    .resizable()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 64, height: 64)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("\(orphans.count) Leftovers Selected").font(.title2.weight(.semibold))
+                    Text("\(bytes.fileSize) · \(count) \(count == 1 ? "item" : "items")")
+                        .foregroundStyle(.secondary)
+                    Text("Files left by apps deleted earlier. Select one on its own to untick files you want to keep.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.vertical, 8)
+            .listRowSeparator(.hidden)
+
+            ForEach(parts, id: \.orphan.id) { part in
+                HStack(spacing: 10) {
+                    Image(systemName: "questionmark.app.dashed")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(part.orphan.bundleID).lineLimit(1).truncationMode(.middle)
+                        Text("\(part.removal.paths.count) of \(part.orphan.paths.count) \(part.orphan.paths.count == 1 ? "item" : "items")")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Text(part.removal.bytes.fileSize).foregroundStyle(.secondary).monospacedDigit()
+                }
+                .contextMenu {
+                    Button("Show in Finder", systemImage: "folder") { FileActions.reveal(part.orphan.paths) }
+                    Button("Deselect", systemImage: "minus.circle") {
+                        model.selection.remove(UninstallItem.orphan(part.orphan).id)
+                    }
+                }
+            }
+        }
+        .listStyle(.inset)
+        .scrollContentBackground(.hidden)
+        // Per-file sizes, so leftovers with locked files show what will really move.
+        .task(id: orphans.map(\.id)) {
+            for orphan in orphans where model.isLocked(orphan) {
+                await model.loadLeftovers(for: .orphan(orphan))
+            }
+        }
+        .safeAreaBar(edge: .bottom) {
+            if count > 0 {
+                SelectionBar(
+                    title: "\(bytes.fileSize) selected",
+                    detail: "\(count) \(count == 1 ? "item" : "items") will move to the Trash"
+                ) {
+                    Button("Remove Leftovers…", systemImage: "trash") {
+                        if let request = model.orphansRequest(for: orphans) { trash.request(request, from: trashButton.rect) }
+                    }
+                    .trashOrigin(trashButton)
+                    .buttonStyle(.glassProminent)
+                    .keyboardShortcut(.delete, modifiers: .command)
+                    .disabled(trash.isRunning)
+                }
+            }
+        }
+    }
+}
+
+/// Explains why some of a deleted app's leftovers can't be ticked.
+private struct LockedLeftoversNote: View {
+    let hasFullDiskAccess: Bool
+    let access: AccessModel
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "lock.fill").foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 6) {
+                if hasFullDiskAccess {
+                    Text("macOS refused to move some of these files. They stay locked until macOS Clean is opened again.")
+                } else {
+                    Text("macOS protects other apps' containers. Turn on Full Disk Access for macOS Clean to remove the locked items.")
+                    Button("Open Privacy Settings") { access.openSettings() }
+                        .controlSize(.small)
+                }
+            }
+            .font(.callout)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.1), in: .rect(cornerRadius: 10))
     }
 }
