@@ -49,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppAppearance.saved.apply()
         NSApp.servicesProvider = services
         // Picks up the Services entry after an install or update without logging out.
         NSUpdateDynamicServices()

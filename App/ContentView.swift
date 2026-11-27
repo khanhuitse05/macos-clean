@@ -116,6 +116,7 @@ struct ContentView: View {
     @State private var state = AppState()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     private let router = AppRouter.shared
 
     var body: some View {
@@ -169,6 +170,12 @@ struct ContentView: View {
         .task {
             await state.access.showWelcomeIfNeeded()
         }
+        #if DEBUG
+        .task {
+            // `-OpenSettings YES` (with `-settingsTab about` etc.) opens Settings at launch, for screenshots.
+            if UserDefaults.standard.bool(forKey: "OpenSettings") { openSettings() }
+        }
+        #endif
         .task {
             // Finder's "Uninstall with macOS Clean" may arrive before or after the window opens.
             router.openMainWindow = { [openWindow] in openWindow(id: "main") }

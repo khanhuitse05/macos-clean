@@ -25,7 +25,7 @@ A native macOS 26 utility built with Swift 6 and SwiftUI. It finds caches, devel
 
 - **Built for developers**: finds Xcode, simulator, package-manager and Docker leftovers in one scan.
 - **Safe by default**: everything goes to the Trash first.
-- **Private**: 100% local, no telemetry or network calls.
+- **Private**: 100% local, no telemetry. The only network request is the update check, and only when you click it.
 - **Native**: pure SwiftUI, no web view.
 
 ## Features
@@ -36,13 +36,15 @@ A native macOS 26 utility built with Swift 6 and SwiftUI. It finds caches, devel
 - **File Browser**: multi-column view with instant folder sizes.
 - **Uninstaller**: removes apps with their preferences, caches and logs, using Strict, Enhanced or Deep matching. It also finds leftovers of apps deleted long ago, and adds an "Uninstall with macOS Clean" item to Finder's Services menu.
 - **Trash & History**: empty the Trash in-app, review past cleanups, and meet **Bubbl**, the mascot.
+- **Menu bar monitor** (optional): free disk space, CPU or memory in the menu bar, with all three a click away.
+- **Settings**: appearance (System, Light, Dark), Full Disk Access status, excluded folders, update check, and links to the GitHub repository and issue tracker.
 
 ## Safety & Privacy
 
 - **Safe vs. Caution**: Safe items are pre-selected; Caution items never are.
 - **Trash-first**: nothing is deleted directly, and protected system and home paths are refused.
 - **One deletion path**: only emptying the Trash is permanent, and it can't touch anything outside `~/.Trash`.
-- **100% local**: no analytics, telemetry or network calls.
+- **100% local**: no analytics or telemetry. macOS Clean contacts GitHub only when you click **Check for Updates** in Settings › About, and sends nothing about you or your Mac.
 
 ## Download & Install
 
