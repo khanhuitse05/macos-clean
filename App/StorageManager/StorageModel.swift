@@ -97,15 +97,79 @@ final class StorageModel {
         return entry.isDirectory && selection.hasSelectedDescendant(entry.path) ? .mixed : .off
     }
 
+    /// The category checkbox reflects the rows on screen, so a filter narrows it too.
     func checkState(of category: CleanupCategory) -> CheckState {
-        guard case .scanned(let result) = phase(of: category), !result.entries.isEmpty else { return .off }
+        guard case .scanned(let result) = phase(of: category) else { return .off }
+        let entries = visibleEntries(of: result)
+        guard !entries.isEmpty else { return .off }
         var sawOn = false
         var sawOther = false
-        for entry in result.entries {
+        for entry in entries {
             if checkState(of: entry) == .on { sawOn = true } else { sawOther = true }
             if sawOn, sawOther { return .mixed }
         }
-        return sawOn ? .on : (result.entries.contains { checkState(of: $0) == .mixed } ? .mixed : .off)
+        return sawOn ? .on : (entries.contains { checkState(of: $0) == .mixed } ? .mixed : .off)
+    }
+
+    // MARK: Filtering
+
+    /// Search, size and age limits and sort order for the result rows. Only a category's own
+    /// rows are filtered; the contents of an expanded folder are always shown in full.
+    var filter = EntryFilter()
+
+    /// A result's rows after ``filter``. Without a filter or custom sort, the scan's own order.
+    func visibleEntries(of result: CategoryScanResult) -> [FileEntry] {
+        guard filter.isActive || filter.sort != .size else { return result.entries }
+        guard !result.simulators.isEmpty else { return filter.apply(to: result.entries) }
+        let names = Dictionary(result.simulators.map { ($0.path, $0.name) }, uniquingKeysWith: { first, _ in first })
+        return filter.apply(to: result.entries) { names[$0.path] }
+    }
+
+    /// Whether a category has a row to show. Every category shows while no filter is active.
+    func isVisible(_ category: CleanupCategory) -> Bool {
+        guard filter.isActive else { return true }
+        guard case .scanned(let result) = phase(of: category) else { return false }
+        return !visibleEntries(of: result).isEmpty
+    }
+
+    /// Rows on screen and rows found, across every scanned category.
+    var visibleCounts: (shown: Int, total: Int) {
+        var shown = 0
+        var total = 0
+        for case .scanned(let result) in phases.values {
+            total += result.entries.count
+            shown += filter.isActive ? visibleEntries(of: result).count : result.entries.count
+        }
+        return (shown, total)
+    }
+
+    /// Selected items a filter currently hides: neither a visible row nor inside one.
+    var hiddenSelectedCount: Int {
+        guard filter.isActive, !selection.units.isEmpty else { return 0 }
+        var visible = Set<String>()
+        for case .scanned(let result) in phases.values {
+            visible.formUnion(visibleEntries(of: result).lazy.map(\.path))
+        }
+        return selection.units.reduce(0) { count, unit in
+            if visible.contains(unit) { return count }
+            var insideVisible = false
+            PathSelection.forEachAncestor(of: unit) { ancestor in
+                insideVisible = visible.contains(ancestor)
+                return !insideVisible
+            }
+            return insideVisible ? count : count + 1
+        }
+    }
+
+    /// Ticks (or unticks) only the rows the filter shows, in every scanned category.
+    func setVisibleSelection(_ isSelected: Bool) {
+        for category in categories {
+            guard case .scanned(let result) = phase(of: category) else { continue }
+            for entry in visibleEntries(of: result) {
+                if isSelected { select(entry.path) } else { deselect(entry.path) }
+            }
+        }
+        recomputeSelectionSummary()
     }
 
     func selectedBytes(in category: CleanupCategory) -> Int64 { selectedBytesByCategory[category.id] ?? 0 }
@@ -340,10 +404,12 @@ final class StorageModel {
             await scan(category)
         }
         guard case .scanned(let result) = phase(of: category) else { return }
+        // Acts on the rows on screen: with a filter active, hidden rows keep their state.
+        let entries = visibleEntries(of: result)
         if checkState(of: category) == .on {
-            for entry in result.entries { deselect(entry.path) }
+            for entry in entries { deselect(entry.path) }
         } else {
-            for entry in result.entries { select(entry.path) }
+            for entry in entries { select(entry.path) }
         }
         recomputeSelectionSummary()
     }

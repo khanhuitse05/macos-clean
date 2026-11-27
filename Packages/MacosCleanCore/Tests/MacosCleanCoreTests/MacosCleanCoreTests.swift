@@ -9,7 +9,7 @@ import Testing
 struct CategoryTests {
     @Test func hasAllCategoriesWithUniqueIDs() {
         let ids = CleanupCategory.all.map(\.id)
-        #expect(ids.count == 26)
+        #expect(ids.count == 38)
         #expect(Set(ids).count == ids.count)
     }
 
@@ -18,7 +18,34 @@ struct CategoryTests {
         #expect(caution == [
             "xcode-archives", "docker-data", "claude-data",
             "ios-backups", "dev-projects", "system-downloads", "simulators",
+            "maven-repository", "nuget-packages", "local-ai-history", "local-ai-models",
         ])
+    }
+
+    /// Paths that hold tools, settings, credentials or data that can't be downloaded again.
+    @Test func noFixedPathTouchesToolHomesOrSettings() {
+        let protected = [
+            "~/.cargo/bin", "~/.cargo/config.toml", "~/.cargo/credentials.toml",
+            "~/.gradle/gradle.properties", "~/.bun/bin", "~/.pub-cache/bin",
+            "~/.pub-cache/global_packages", "~/.ollama/models", "~/.ollama/id_ed25519",
+            "~/.m2/settings.xml", "~/go/pkg/mod", "~/.ssh",
+        ]
+        for category in CleanupCategory.all {
+            guard case .paths(let paths) = category.source else { continue }
+            for path in paths {
+                for guarded in protected {
+                    #expect(path != guarded && !path.hasPrefix(guarded + "/") && !guarded.hasPrefix(path + "/"),
+                            "\(category.id) lists \(path), which overlaps \(guarded)")
+                }
+            }
+        }
+    }
+
+    @Test func modelsAndHistoryAreNeverPreselected() {
+        let byID = Dictionary(uniqueKeysWithValues: CleanupCategory.all.map { ($0.id, $0) })
+        for id in ["local-ai-models", "local-ai-history", "maven-repository", "nuget-packages"] {
+            #expect(byID[id]?.safety.selectedByDefault == false, "\(id)")
+        }
     }
 
     @Test func onlySafeCategoriesAreSelectedByDefault() {

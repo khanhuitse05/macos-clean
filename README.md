@@ -30,7 +30,7 @@ A native macOS 26 utility built with Swift 6 and SwiftUI. It finds caches, devel
 
 ## Features
 
-- **Storage Manager**: 26 cleanup categories (caches, logs, Xcode, simulators, SwiftPM/npm/Homebrew/Gradle/Cargo, Docker, git project leftovers) in **Safe** and **Caution** tiers.
+- **Storage Manager**: 38 cleanup categories (caches, logs, Xcode, simulators, SwiftPM/npm/Bun/uv/Go/Homebrew/Gradle/Cargo, Docker, Ollama/LM Studio, git project leftovers) in **Safe** and **Caution** tiers, with search, size and age filters.
 - **Large Files**: fast scan with size thresholds, exclusions and Quick Look.
 - **Duplicates**: finds identical files by size and `CryptoKit` hash, skipping hard links.
 - **File Browser**: multi-column view with instant folder sizes.

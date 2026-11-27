@@ -160,7 +160,7 @@ extension CleanupCategory {
             name: LocalizedStringResource("Poetry Cache", bundle: #bundle),
             details: LocalizedStringResource("Python Poetry cache. Safe to delete.", bundle: #bundle),
             safety: .safe,
-            source: .paths(["~/Library/Caches/pypoetry"])
+            source: .paths(["~/Library/Caches/pypoetry", "~/.cache/pypoetry"])
         ),
         CleanupCategory(
             id: "homebrew-cache",
@@ -172,16 +172,85 @@ extension CleanupCategory {
         CleanupCategory(
             id: "gradle-cache",
             name: LocalizedStringResource("Gradle Cache", bundle: #bundle),
-            details: LocalizedStringResource("Gradle build cache and downloaded dependencies. Safe to delete.", bundle: #bundle),
+            details: LocalizedStringResource("Gradle build cache, downloaded dependencies and Gradle wrapper distributions. Safe to delete; stop Gradle first (`gradle --stop`).", bundle: #bundle),
             safety: .safe,
-            source: .paths(["~/.gradle/caches"])
+            source: .paths(["~/.gradle/caches", "~/.gradle/wrapper/dists"])
         ),
         CleanupCategory(
             id: "cargo-cache",
             name: LocalizedStringResource("Cargo Registry Cache", bundle: #bundle),
             details: LocalizedStringResource("Rust crate download cache. Safe to delete.", bundle: #bundle),
             safety: .safe,
-            source: .paths(["~/.cargo/registry/cache", "~/.cargo/registry/src", "~/.cargo/git/db"])
+            source: .paths([
+                "~/.cargo/registry/cache", "~/.cargo/registry/src", "~/.cargo/registry/index",
+                "~/.cargo/git/db", "~/.cargo/git/checkouts",
+            ])
+        ),
+        CleanupCategory(
+            id: "bun-cache",
+            name: LocalizedStringResource("Bun Cache", bundle: #bundle),
+            details: LocalizedStringResource("Bun's global package download cache. Safe to delete; Bun downloads packages again on the next install.", bundle: #bundle),
+            safety: .safe,
+            source: .paths(["~/.bun/install/cache"])
+        ),
+        CleanupCategory(
+            id: "uv-cache",
+            name: LocalizedStringResource("uv Cache", bundle: #bundle),
+            details: LocalizedStringResource("Python packages and wheels cached by uv. Safe to delete; quit any running uv command first.", bundle: #bundle),
+            safety: .safe,
+            source: .paths(["~/.cache/uv", "~/Library/Caches/uv"])
+        ),
+        CleanupCategory(
+            id: "go-build-cache",
+            name: LocalizedStringResource("Go Build Cache", bundle: #bundle),
+            details: LocalizedStringResource("Compiled Go packages and test results. Safe to delete; Go rebuilds them on the next build. The Go module cache isn't listed: its files are read-only, so use `go clean -modcache`.", bundle: #bundle),
+            safety: .safe,
+            source: .paths(["~/Library/Caches/go-build"])
+        ),
+        CleanupCategory(
+            id: "deno-cache",
+            name: LocalizedStringResource("Deno Cache", bundle: #bundle),
+            details: LocalizedStringResource("Downloaded and compiled Deno modules. Safe to delete; Deno fetches them again.", bundle: #bundle),
+            safety: .safe,
+            source: .paths(["~/Library/Caches/deno", "~/.cache/deno"])
+        ),
+        CleanupCategory(
+            id: "dart-pub-cache",
+            name: LocalizedStringResource("Dart & Flutter Pub Cache", bundle: #bundle),
+            details: LocalizedStringResource("Packages downloaded by `dart pub` and `flutter pub`. Safe to delete; run `pub get` to restore. Globally activated tools aren't touched.", bundle: #bundle),
+            safety: .safe,
+            source: .paths(["~/.pub-cache/hosted", "~/.pub-cache/git"])
+        ),
+        CleanupCategory(
+            id: "browser-test-downloads",
+            name: LocalizedStringResource("Playwright & Puppeteer Browsers", bundle: #bundle),
+            details: LocalizedStringResource("Browser builds downloaded for automated testing. Safe to delete; `playwright install` or Puppeteer downloads them again.", bundle: #bundle),
+            safety: .safe,
+            source: .paths(["~/Library/Caches/ms-playwright", "~/.cache/ms-playwright", "~/.cache/puppeteer"])
+        ),
+        CleanupCategory(
+            id: "electron-cache",
+            name: LocalizedStringResource("Electron & node-gyp Downloads", bundle: #bundle),
+            details: LocalizedStringResource("Electron binaries, electron-builder tools and Node.js headers for native modules. Safe to delete; they download again on the next build.", bundle: #bundle),
+            safety: .safe,
+            source: .paths([
+                "~/Library/Caches/electron", "~/Library/Caches/electron-builder",
+                "~/Library/Caches/node-gyp", "~/.cache/node-gyp",
+            ])
+        ),
+        CleanupCategory(
+            id: "maven-repository",
+            name: LocalizedStringResource("Maven Local Repository", bundle: #bundle),
+            details: LocalizedStringResource("Java dependencies downloaded by Maven. Review before deleting: it can also hold artifacts you installed with `mvn install` that can't be downloaded again.", bundle: #bundle),
+            safety: .caution,
+            source: .paths(["~/.m2/repository"])
+        ),
+        CleanupCategory(
+            id: "nuget-packages",
+            name: LocalizedStringResource("NuGet Packages", bundle: #bundle),
+            details: LocalizedStringResource(".NET packages and NuGet's download cache. Review before deleting: it can hold packages you built locally.", bundle: #bundle),
+            safety: .caution,
+            source: .paths(["~/.nuget/packages", "~/.local/share/NuGet/http-cache"])
         ),
         CleanupCategory(
             id: "docker-data",
@@ -216,6 +285,33 @@ extension CleanupCategory {
                 "~/.claude/shell-snapshots",
                 "~/.claude/statsig",
             ])
+        ),
+        CleanupCategory(
+            id: "local-ai-logs",
+            name: LocalizedStringResource("Ollama & LM Studio Logs", bundle: #bundle),
+            details: LocalizedStringResource("Logs and app caches of Ollama and LM Studio. Safe to delete; models, chats and settings aren't touched.", bundle: #bundle),
+            safety: .safe,
+            source: .paths([
+                "~/.ollama/logs",
+                "~/Library/Caches/ollama",
+                "~/Library/Caches/com.electron.ollama",
+                "~/Library/WebKit/com.electron.ollama",
+                "~/.lmstudio/server-logs",
+            ])
+        ),
+        CleanupCategory(
+            id: "local-ai-history",
+            name: LocalizedStringResource("Ollama & LM Studio History", bundle: #bundle),
+            details: LocalizedStringResource("Your Ollama prompt history and LM Studio conversations. These can't be recreated. Review before deleting.", bundle: #bundle),
+            safety: .caution,
+            source: .paths(["~/.ollama/history", "~/.lmstudio/conversations"])
+        ),
+        CleanupCategory(
+            id: "local-ai-models",
+            name: LocalizedStringResource("Downloaded AI Models", bundle: #bundle),
+            details: LocalizedStringResource("Models downloaded by LM Studio and Hugging Face tools. Often many GB each; they can be downloaded again, but that can take a long time. Remove Ollama models with `ollama rm` instead.", bundle: #bundle),
+            safety: .caution,
+            source: .paths(["~/.lmstudio/models", "~/.cache/lm-studio/models", "~/.cache/huggingface/hub"])
         ),
         CleanupCategory(
             id: "ios-backups",

@@ -16,6 +16,7 @@ struct StorageManagerView: View {
     @State private var trashButton = FrameBox()
 
     var body: some View {
+        @Bindable var model = model
         List {
             StorageSummaryHeader(
                 foundBytes: model.foundBytes,
@@ -43,7 +44,12 @@ struct StorageManagerView: View {
                 .padding(.bottom, 4)
             }
 
-            ForEach(model.categories) { category in
+            if model.filter.isActive, model.hasAnyResult {
+                FilterStatusRow(counts: model.visibleCounts) { model.filter = EntryFilter(sort: model.filter.sort) }
+                    .listRowSeparator(.hidden)
+            }
+
+            ForEach(model.categories.filter(model.isVisible)) { category in
                 CategoryDisclosure(
                     category: category,
                     model: model,
@@ -59,7 +65,7 @@ struct StorageManagerView: View {
             if model.selectedCount > 0 {
                 SelectionBar(
                     title: "\(model.selectedBytes.fileSize) selected",
-                    detail: "\(model.selectedCount.formatted()) \(model.selectedCount == 1 ? "item" : "items") will move to the Trash"
+                    detail: selectionDetail
                 ) {
                     Button("Deselect All") { model.selectNone() }
                     Button("Move to Trash…", systemImage: "trash") {
@@ -78,7 +84,14 @@ struct StorageManagerView: View {
         .navigationSubtitle(subtitle)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                FilterMenu(filter: $model.filter)
+                    .disabled(!model.hasAnyResult)
                 Menu("Select", systemImage: "checklist") {
+                    if model.filter.isActive {
+                        Button("Select Visible Items") { model.setVisibleSelection(true) }
+                        Button("Deselect Visible Items") { model.setVisibleSelection(false) }
+                        Divider()
+                    }
                     Button("Select All Scanned Items") { model.selectAll() }
                     Button("Deselect All") { model.selectNone() }
                 }
@@ -95,6 +108,19 @@ struct StorageManagerView: View {
             }
         }
         .quickLookPreview($previewURL)
+        .searchable(text: $model.filter.query, placement: .toolbar, prompt: "Search names and paths")
+        .onChange(of: model.filter.query) { _, query in
+            // Open the categories that have matches so they can be seen at once.
+            guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+            for category in model.categories where model.isVisible(category) { expanded.insert(category.id) }
+        }
+    }
+
+    private var selectionDetail: String {
+        let items = "\(model.selectedCount.formatted()) \(model.selectedCount == 1 ? "item" : "items") will move to the Trash"
+        let hidden = model.hiddenSelectedCount
+        guard hidden > 0 else { return items }
+        return "\(items) · \(hidden.formatted()) hidden by filters"
     }
 
     private func perform(_ suggestion: Suggestion) {
@@ -116,6 +142,60 @@ struct StorageManagerView: View {
             return "\(found) · Scanned \(date.formatted(.relative(presentation: .named)))"
         }
         return found
+    }
+}
+
+/// Toolbar menu for the size and age limits and the sort order of result rows.
+private struct FilterMenu: View {
+    @Binding var filter: EntryFilter
+
+    var body: some View {
+        Menu {
+            Picker("Size", selection: $filter.minimumSize) {
+                ForEach(EntryFilter.MinimumSize.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.inline)
+            Picker("Age", selection: $filter.minimumAge) {
+                ForEach(EntryFilter.MinimumAge.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.inline)
+            Picker("Sort By", selection: $filter.sort) {
+                ForEach(EntryFilter.Sort.allCases) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Button("Clear Filters") { filter = EntryFilter(query: filter.query, sort: filter.sort) }
+                .disabled(filter.minimumSize == .any && filter.minimumAge == .any)
+        } label: {
+            Label("Filter", systemImage: isFiltering ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+        }
+        .help("Filter results by size and age, and choose the sort order")
+    }
+
+    private var isFiltering: Bool { filter.minimumSize != .any || filter.minimumAge != .any }
+}
+
+/// Shown while a filter hides rows: how many rows are on screen, and a way back.
+private struct FilterStatusRow: View {
+    let counts: (shown: Int, total: Int)
+    let onClear: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .foregroundStyle(.tint)
+            if counts.shown == 0 {
+                Text("No items match the search or filters.")
+            } else {
+                Text("Showing \(counts.shown.formatted()) of \(counts.total.formatted()) items. Category checkboxes and Select Visible affect only these.")
+            }
+            Spacer(minLength: 8)
+            Button("Clear", action: onClear)
+                .controlSize(.small)
+        }
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .padding(.vertical, 2)
     }
 }
 
@@ -287,7 +367,7 @@ private struct CategoryDisclosure: View {
                         .foregroundStyle(.secondary)
                         .symbolEffect(.bounce, options: .nonRepeating, value: result.scannedAt)
                 } else {
-                    ForEach(result.entries) { entry in
+                    ForEach(model.visibleEntries(of: result)) { entry in
                         EntryRow(
                             entry: entry, model: model, trash: trash,
                             expanded: $expanded, onQuickLook: onQuickLook
@@ -538,6 +618,12 @@ enum CategoryStyle {
         case "homebrew-cache": "mug"
         case "docker-data": "cube"
         case "claude-data": "bubble.left.and.text.bubble.right"
+        case "local-ai-logs": "doc.text.magnifyingglass"
+        case "local-ai-history": "text.bubble"
+        case "local-ai-models": "cpu"
+        case "browser-test-downloads": "safari"
+        case "electron-cache": "atom"
+        case "maven-repository", "nuget-packages": "shippingbox.circle"
         case "ios-backups": "externaldrive.badge.timemachine"
         case "app-caches": "square.stack.3d.up"
         case "dev-projects": "chevron.left.forwardslash.chevron.right"
