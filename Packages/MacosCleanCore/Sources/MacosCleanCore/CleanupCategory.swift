@@ -42,6 +42,60 @@ public struct CleanupCategory: Identifiable, Sendable {
 }
 
 extension CleanupCategory {
+    /// Where a category sits in Storage Manager and the sidebar.
+    public enum Group: String, Sendable, CaseIterable, Identifiable, Codable {
+        /// macOS and app caches and logs.
+        case systemApps
+        /// Xcode, simulators and Apple package managers.
+        case xcode
+        /// Package-manager caches and code-project leftovers.
+        case developer
+        /// Docker, Claude and local AI tools.
+        case aiContainers
+        /// The person's own files: downloads, backups, models, archives. Always listed last.
+        case personal
+
+        public var id: String { rawValue }
+
+        public var title: LocalizedStringResource {
+            switch self {
+            case .systemApps: LocalizedStringResource("System & Apps", bundle: #bundle)
+            case .xcode: LocalizedStringResource("Xcode & Simulators", bundle: #bundle)
+            case .developer: LocalizedStringResource("Developer Caches", bundle: #bundle)
+            case .aiContainers: LocalizedStringResource("AI & Containers", bundle: #bundle)
+            case .personal: LocalizedStringResource("Personal Files", bundle: #bundle)
+            }
+        }
+
+        /// Groups that only matter to people who write code or run local AI: shown only when
+        /// something in them is on this Mac.
+        public var isForDevelopers: Bool {
+            switch self {
+            case .xcode, .developer, .aiContainers: true
+            case .systemApps, .personal: false
+            }
+        }
+    }
+
+    public var group: Group {
+        switch id {
+        case "user-caches", "user-logs", "trash", "app-caches", "ios-updates":
+            .systemApps
+        case "xcode-derived", "xcode-device-support", "simulator-caches", "simulators", "xcode-previews",
+             "spm-cache", "cocoapods-cache":
+            .xcode
+        case "docker-data", "claude-data", "local-ai-logs", "local-ai-history":
+            .aiContainers
+        case "system-downloads", "ios-backups", "local-ai-models", "xcode-archives":
+            .personal
+        default:
+            // Package managers and project leftovers; new tool caches land here too.
+            .developer
+        }
+    }
+}
+
+extension CleanupCategory {
     /// Built-in cleanup categories shown in Storage Manager.
     public static let all: [CleanupCategory] = [
         CleanupCategory(

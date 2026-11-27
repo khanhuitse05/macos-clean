@@ -46,6 +46,12 @@ final class StorageModel {
     /// not scanned yet (in their usual order), then the ones with nothing to clean. Updated
     /// when a scan finishes, never by live updates, so rows don't jump while being read.
     private(set) var displayOrder: [String] = []
+    /// Groups in the order they're listed: found space largest first, Personal Files last.
+    /// Updated together with ``displayOrder``.
+    private(set) var groupOrder: [CleanupCategory.Group] = CleanupCategory.Group.allCases
+    /// Scanned categories whose folders don't exist on this Mac (the tool isn't installed):
+    /// listed apart, in one "Not on this Mac" row at the bottom of their group.
+    private(set) var notOnThisMac: Set<String> = []
     /// Categories done out of all of them, while ``scanAll()`` runs.
     private(set) var scanAllProgress: (done: Int, total: Int)?
     /// Bumped to make a category row glow briefly: when its scan finishes, or when a
@@ -121,6 +127,56 @@ final class StorageModel {
         return displayOrder.compactMap { byID[$0] }
     }
 
+    /// Categories of `group` in ``displayOrder`` (every category when `group` is nil).
+    func orderedCategories(in group: CleanupCategory.Group?) -> [CleanupCategory] {
+        guard let group else { return orderedCategories }
+        return orderedCategories.filter { $0.group == group }
+    }
+
+    /// Space found in `group`'s categories so far.
+    func foundBytes(in group: CleanupCategory.Group) -> Int64 {
+        categories.reduce(0) { total, category in
+            guard category.group == group, case .scanned(let result)? = phases[category.id] else { return total }
+            return total + result.totalBytes
+        }
+    }
+
+    func hasResult(in group: CleanupCategory.Group) -> Bool {
+        categories.contains { category in
+            guard category.group == group, case .scanned? = phases[category.id] else { return false }
+            return true
+        }
+    }
+
+    func isScanning(_ group: CleanupCategory.Group) -> Bool {
+        categories.contains { $0.group == group && (phase(of: $0) == .scanning || refreshing.contains($0.id)) }
+    }
+
+    /// Whether something of `category` is on this Mac: its folders exist, or it found items.
+    func isPresent(_ category: CleanupCategory) -> Bool {
+        guard case .scanned(let result)? = phases[category.id], !notOnThisMac.contains(category.id) else { return false }
+        if case .paths = category.source { return true }
+        return !result.entries.isEmpty
+    }
+
+    /// A developer group whose categories were all scanned and none is on this Mac.
+    func isAbsent(_ group: CleanupCategory.Group) -> Bool {
+        guard group.isForDevelopers else { return false }
+        let members = categories.filter { $0.group == group }
+        return members.allSatisfy { category in
+            guard case .scanned? = phases[category.id] else { return false }
+            return !isPresent(category)
+        }
+    }
+
+    /// Groups for the sidebar, in ``groupOrder``. Developer groups show only once a scan
+    /// found something of theirs on this Mac.
+    var sidebarGroups: [CleanupCategory.Group] {
+        groupOrder.filter { group in
+            !group.isForDevelopers || categories.contains { $0.group == group && isPresent($0) }
+        }
+    }
+
     /// The category's size before this scan began, if it had one.
     func expectedBytes(of category: CleanupCategory) -> Int64? { expectedBytes[category.id] }
 
@@ -147,6 +203,27 @@ final class StorageModel {
         }
         let sorted = categories.map(\.id).sorted { rank($0) < rank($1) }
         if sorted != displayOrder { displayOrder = sorted }
+
+        let all = CleanupCategory.Group.allCases
+        let groups = all.filter { $0 != .personal }
+            .sorted { lhs, rhs in
+                let (left, right) = (foundBytes(in: lhs), foundBytes(in: rhs))
+                return left != right ? left > right : all.firstIndex(of: lhs)! < all.firstIndex(of: rhs)!
+            } + [.personal]
+        if groups != groupOrder { groupOrder = groups }
+    }
+
+    /// True when none of a scanned category's folders exist on this Mac.
+    private func isMissing(_ category: CleanupCategory, result: CategoryScanResult) -> Bool {
+        guard result.entries.isEmpty else { return false }
+        switch category.source {
+        case .paths(let raw):
+            return !raw.contains { FileManager.default.fileExists(atPath: scanner.expander.expand($0).path) }
+        case .simulators:
+            return true
+        case .appCaches, .devProjects:
+            return false
+        }
     }
 
 
@@ -327,8 +404,10 @@ final class StorageModel {
 
     // MARK: Scanning
 
-    func scanAll() async {
+    /// Scans every category, or only `group`'s.
+    func scanAll(in group: CleanupCategory.Group? = nil) async {
         guard !isScanningAll else { return }
+        let categories = group.map { group in self.categories.filter { $0.group == group } } ?? self.categories
         isScanningAll = true
         scanAllProgress = (0, categories.count)
         defer {
@@ -570,6 +649,11 @@ final class StorageModel {
         }
         addPrefetched(result.prefetched, owner: category.id)
         phases[category.id] = .scanned(result.strippingPrefetched)
+        if isMissing(category, result: result) {
+            notOnThisMac.insert(category.id)
+        } else {
+            notOnThisMac.remove(category.id)
+        }
 
         if !hasDefaultSelection.contains(category.id) {
             // First scan: tick everything in a safe category, nothing in a caution one.
@@ -637,6 +721,31 @@ final class StorageModel {
             for entry in entries { select(entry.path) }
         }
         recomputeSelectionSummary()
+    }
+
+    /// The group checkbox: the visible rows of the group's scanned categories.
+    func checkState(of group: CleanupCategory.Group) -> CheckState {
+        let states = categories.filter { $0.group == group && isScannedNonEmpty($0) }.map { checkState(of: $0) }
+        guard !states.isEmpty else { return .off }
+        if states.allSatisfy({ $0 == .on }) { return .on }
+        return states.allSatisfy({ $0 == .off }) ? .off : .mixed
+    }
+
+    /// Ticks (or, when all are ticked, unticks) the visible rows of the group's scanned categories.
+    func toggle(_ group: CleanupCategory.Group) {
+        let select = checkState(of: group) != .on
+        for category in categories where category.group == group {
+            guard case .scanned(let result) = phase(of: category) else { continue }
+            for entry in visibleEntries(of: result) {
+                if select { self.select(entry.path) } else { deselect(entry.path) }
+            }
+        }
+        recomputeSelectionSummary()
+    }
+
+    private func isScannedNonEmpty(_ category: CleanupCategory) -> Bool {
+        guard case .scanned(let result) = phase(of: category) else { return false }
+        return !visibleEntries(of: result).isEmpty
     }
 
     func selectAll() {
@@ -733,6 +842,37 @@ final class StorageModel {
         return .cleaning(
             paths, bytes: max(0, selectedBytes - simulatorBytes), simulators: simulators,
             extraMessage: categoryCount > 1 ? "From \(categoryCount) categories. Quit apps whose caches you're cleaning first." : nil
+        ) { [weak self] summary in
+            self?.removeTrashed(summary)
+        }
+    }
+
+    /// Whether `group` has Safe items "Clean Safe Items" would move.
+    func hasSafeItems(in group: CleanupCategory.Group) -> Bool {
+        categories.contains { category in
+            guard category.group == group, category.safety == .safe, !category.isRemovedWithSimctl,
+                  case .scanned(let result)? = phases[category.id]
+            else { return false }
+            return result.totalBytes > 0
+        }
+    }
+
+    /// Everything in `group`'s Safe categories, for "Clean Safe Items". Leaves the current
+    /// selection alone; nil when there's nothing to clean.
+    func safeItemsRequest(in group: CleanupCategory.Group) -> TrashCoordinator.Request? {
+        var paths: [String] = []
+        var bytes: Int64 = 0
+        for category in categories where category.group == group && category.safety == .safe && !category.isRemovedWithSimctl {
+            guard case .scanned(let result) = phase(of: category) else { continue }
+            for entry in result.entries where entry.sizeBytes > 0 {
+                paths.append(entry.path)
+                bytes += entry.sizeBytes
+            }
+        }
+        guard !paths.isEmpty else { return nil }
+        return .cleaning(
+            paths, bytes: bytes, simulators: [],
+            extraMessage: "Every Safe item in \(String(localized: group.title)). Quit apps whose caches you're cleaning first."
         ) { [weak self] summary in
             self?.removeTrashed(summary)
         }

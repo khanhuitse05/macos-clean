@@ -7,7 +7,7 @@ enum AppSection: String, Hashable, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     /// The sections listed under "Clean Up"; the Trash sits apart at the bottom of the sidebar.
-    static let cleanUp: [AppSection] = [.storage, .largeFiles, .duplicates, .fileBrowser, .uninstaller]
+    static let cleanUp: [AppSection] = [.storage, .fileBrowser, .largeFiles, .duplicates, .uninstaller]
 
     var title: LocalizedStringKey {
         switch self {
@@ -32,11 +32,42 @@ enum AppSection: String, Hashable, CaseIterable, Identifiable {
     }
 }
 
+/// A selectable sidebar row: a section, or one of Storage Manager's groups.
+enum SidebarItem: Hashable {
+    case section(AppSection)
+    case storageGroup(CleanupCategory.Group)
+}
+
 /// Owns every feature model for the window, so switching sections keeps results.
 @MainActor
 @Observable
 final class AppState {
-    var section: AppSection? = AppState.initialSection
+    var section: AppSection? = AppState.initialSection {
+        didSet { if section != .storage { storageGroup = nil } }
+    }
+    /// The Storage Manager group picked in the sidebar; nil shows every group.
+    var storageGroup: CleanupCategory.Group?
+
+    /// The sidebar's selection: a group row means Storage Manager narrowed to that group.
+    var sidebarSelection: SidebarItem? {
+        get {
+            guard let section else { return nil }
+            if section == .storage, let storageGroup { return .storageGroup(storageGroup) }
+            return .section(section)
+        }
+        set {
+            switch newValue {
+            case .storageGroup(let group):
+                section = .storage
+                storageGroup = group
+            case .section(let picked):
+                section = picked
+                storageGroup = nil
+            case nil:
+                break
+            }
+        }
+    }
     let storage = StorageModel()
     let largeFiles = LargeFilesModel()
     let duplicates = DuplicatesModel()
@@ -131,7 +162,8 @@ struct ContentView: View {
                     StorageManagerView(
                         model: state.storage, trash: state.trash, access: state.access,
                         suggestions: state.suggestions, uninstaller: state.uninstaller,
-                        onReviewApp: { state.reviewApp(at: $0) }
+                        onReviewApp: { state.reviewApp(at: $0) },
+                        group: state.storageGroup
                     )
                 case .largeFiles:
                     LargeFilesView(model: state.largeFiles, trash: state.trash, access: state.access)
@@ -194,28 +226,36 @@ private struct Sidebar: View {
     @Bindable var state: AppState
 
     var body: some View {
-        List(selection: $state.section) {
+        List(selection: $state.sidebarSelection) {
             Section("Clean Up") {
                 ForEach(AppSection.cleanUp) { section in
-                    let scanning = state.isScanning(section)
-                    HStack(spacing: 6) {
-                        Label {
-                            Text(section.title)
-                        } icon: {
-                            SidebarIcon(systemImage: section.systemImage)
-                        }
-                        Spacer(minLength: 4)
-                        if scanning {
-                            ProgressView()
-                                .controlSize(.mini)
-                                .transition(.opacity)
-                                .accessibilityLabel("Scanning")
+                    SidebarRow(
+                        title: Text(section.title), systemImage: section.systemImage,
+                        isScanning: state.isScanning(section), trailing: trailing(for: section)
+                    )
+                    .tag(SidebarItem.section(section))
+                    if section == .storage {
+                        // Storage Manager's groups, largest first; developer groups only when
+                        // something of theirs is on this Mac.
+                        ForEach(state.storage.sidebarGroups) { group in
+                            groupRow(group)
                         }
                     }
-                    .animation(.easeInOut(duration: 0.2), value: scanning)
-                    .badge(scanning ? nil : badge(for: section))
-                    .tag(section)
                 }
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if let volume = state.storage.volume {
+                SidebarDiskBar(
+                    volume: volume,
+                    foundBytes: state.storage.hasAnyResult ? state.storage.foundBytes : 0,
+                    trashBytes: state.trash.bin.isMeasured ? state.trash.bin.bytes : 0
+                ) {
+                    state.sidebarSelection = .section(.storage)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 6)
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -235,6 +275,45 @@ private struct Sidebar: View {
         }
     }
 
+    private func groupRow(_ group: CleanupCategory.Group) -> some View {
+        let storage = state.storage
+        return SidebarRow(
+            title: Text(group.title), systemImage: GroupStyle.symbol(for: group), iconSize: 16,
+            isScanning: storage.isScanning(group),
+            trailing: storage.hasResult(in: group) ? .bytes(storage.foundBytes(in: group)) : nil
+        )
+        .padding(.leading, 14)
+        .tag(SidebarItem.storageGroup(group))
+        .contextMenu {
+            Button("Clean Safe Items…", systemImage: "sparkles") {
+                if let request = storage.safeItemsRequest(in: group) { state.trash.request(request) }
+            }
+            .disabled(!storage.hasSafeItems(in: group) || state.trash.isRunning)
+            Button("Rescan Group", systemImage: "arrow.clockwise") {
+                state.sidebarSelection = .storageGroup(group)
+                Task { await storage.scanAll(in: group) }
+            }
+            .disabled(storage.isScanningAll)
+        }
+    }
+
+    /// What a section's row shows on the right once it has results.
+    private func trailing(for section: AppSection) -> SidebarRow.Trailing? {
+        switch section {
+        case .storage:
+            state.storage.hasAnyResult ? .bytes(state.storage.foundBytes) : nil
+        case .largeFiles:
+            state.largeFiles.hasScanned ? .bytes(state.largeFiles.totalBytes) : nil
+        case .duplicates:
+            state.duplicates.hasScanned ? .bytes(state.duplicates.wastedBytes) : nil
+        case .uninstaller:
+            // Removed apps with leftovers waiting to be cleaned up.
+            state.uninstaller.removed.isEmpty ? nil : .count(state.uninstaller.removed.count)
+        case .fileBrowser, .trash:
+            nil
+        }
+    }
+
     private var fullDiskAccessButton: some View {
         Button {
             state.access.isShowingWelcome = true
@@ -248,11 +327,117 @@ private struct Sidebar: View {
         .foregroundStyle(.orange)
         .help("Some folders can't be scanned. Click to learn how to allow access.")
     }
+}
 
-    private func badge(for section: AppSection) -> Text? {
-        // Removed apps with leftovers waiting to be cleaned up.
-        guard section == .uninstaller, !state.uninstaller.removed.isEmpty else { return nil }
-        return Text("\(state.uninstaller.removed.count)")
+/// One sidebar row: icon tile, title, and a spinner while scanning or what it found.
+private struct SidebarRow: View {
+    enum Trailing: Equatable {
+        case bytes(Int64)
+        case count(Int)
+    }
+
+    let title: Text
+    let systemImage: String
+    var iconSize: CGFloat = 20
+    let isScanning: Bool
+    let trailing: Trailing?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Label {
+                title.lineLimit(1)
+            } icon: {
+                SidebarIcon(systemImage: systemImage, size: iconSize)
+            }
+            Spacer(minLength: 4)
+            if isScanning {
+                ProgressView()
+                    .controlSize(.mini)
+                    .transition(.opacity)
+                    .accessibilityLabel("Scanning")
+            } else if let trailing {
+                Group {
+                    switch trailing {
+                    case .bytes(let bytes):
+                        // Counts up and down as results arrive and items leave for the Trash.
+                        CountingBytes(bytes: Double(bytes))
+                            .motionAnimation(.smooth(duration: 0.6), value: bytes)
+                    case .count(let count):
+                        Text(count.formatted()).monospacedDigit()
+                    }
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: isScanning)
+    }
+}
+
+/// The home disk in one thin bar above the sidebar: used space, junk found, what's in the
+/// Trash, and free space. Clicking it opens Storage Manager.
+private struct SidebarDiskBar: View {
+    let volume: VolumeUsage
+    let foundBytes: Int64
+    let trashBytes: Int64
+    let onOpen: () -> Void
+
+    var body: some View {
+        let total = Double(max(1, volume.total))
+        let used = Double(volume.used)
+        let found = min(Double(foundBytes), used)
+        let inTrash = min(Double(trashBytes), used - found)
+        let other = used - found - inTrash
+        Button(action: onOpen) {
+            VStack(alignment: .leading, spacing: 4) {
+                GeometryReader { proxy in
+                    let width = proxy.size.width
+                    HStack(spacing: 0) {
+                        Rectangle().fill(.gray.opacity(0.45)).frame(width: width * other / total)
+                        Rectangle().fill(Color.purple.opacity(0.45)).frame(width: width * inTrash / total)
+                        Rectangle().fill(.orange.opacity(0.6)).frame(width: width * found / total)
+                        Spacer(minLength: 0)
+                    }
+                    .background(.quaternary)
+                    .clipShape(.capsule)
+                }
+                .frame(height: 6)
+                HStack(spacing: 4) {
+                    CountingBytes(bytes: Double(volume.available))
+                    Text("free")
+                    Spacer(minLength: 4)
+                    if found > 0 {
+                        CountingBytes(bytes: found).foregroundStyle(.orange)
+                        Text("cleanable")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .motionAnimation(.smooth(duration: 0.6), value: volume)
+        .motionAnimation(.smooth(duration: 0.6), value: foundBytes)
+        .motionAnimation(.smooth(duration: 0.6), value: trashBytes)
+        .help("\(volume.available.fileSize) free of \(volume.total.fileSize). Click to open Storage Manager.")
+        .accessibilityLabel("\(volume.available.fileSize) free of \(volume.total.fileSize)")
+    }
+}
+
+enum GroupStyle {
+    static func symbol(for group: CleanupCategory.Group) -> String {
+        switch group {
+        case .systemApps: "macwindow"
+        case .xcode: "hammer.fill"
+        case .developer: "shippingbox.fill"
+        case .aiContainers: "cpu.fill"
+        case .personal: "person.crop.square.fill"
+        }
     }
 }
 

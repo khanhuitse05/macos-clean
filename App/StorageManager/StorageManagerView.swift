@@ -10,6 +10,8 @@ struct StorageManagerView: View {
     let uninstaller: UninstallerModel
     /// Opens an app (by bundle path) in the Uninstaller.
     let onReviewApp: (String) -> Void
+    /// The group picked in the sidebar; nil shows every group.
+    var group: CleanupCategory.Group?
 
     @State private var expanded: Set<String> = []
     @State private var previewURL: URL?
@@ -40,7 +42,7 @@ struct StorageManagerView: View {
         @Bindable var model = model
         return List {
             StorageSummaryHeader(
-                foundBytes: model.foundBytes,
+                foundBytes: group.map(model.foundBytes(in:)) ?? model.foundBytes,
                 selectedBytes: model.selectedBytes,
                 trashBytes: trash.bin.isMeasured ? trash.bin.bytes : 0,
                 volume: model.volume,
@@ -53,12 +55,14 @@ struct StorageManagerView: View {
             )
             .listRowSeparator(.hidden)
 
-            SuggestionCards(
-                suggestions: suggestions.suggestions(storage: model, uninstaller: uninstaller),
-                onAction: perform,
-                onDismiss: { suggestions.dismiss($0) }
-            )
-            .listRowSeparator(.hidden)
+            if group == nil {
+                SuggestionCards(
+                    suggestions: suggestions.suggestions(storage: model, uninstaller: uninstaller),
+                    onAction: perform,
+                    onDismiss: { suggestions.dismiss($0) }
+                )
+                .listRowSeparator(.hidden)
+            }
 
             if !model.deniedPaths.isEmpty {
                 FullDiskAccessBanner(deniedPaths: model.deniedPaths, access: access) {
@@ -73,16 +77,28 @@ struct StorageManagerView: View {
                     .listRowSeparator(.hidden)
             }
 
-            // Largest first, re-sorted as each scan finishes.
-            ForEach(model.orderedCategories.filter(model.isVisible)) { category in
-                CategoryDisclosure(
-                    category: category,
-                    model: model,
-                    trash: trash,
-                    expanded: $expanded,
-                    onQuickLook: { previewURL = $0 }
-                )
-                .id(category.id)
+            // Groups and their categories largest first, re-sorted as each scan finishes.
+            ForEach(shownGroups) { group in
+                let all = model.orderedCategories(in: group)
+                let present = all.filter { !model.notOnThisMac.contains($0.id) && model.isVisible($0) }
+                let missing = all.filter { model.notOnThisMac.contains($0.id) }
+                Section {
+                    ForEach(present) { category in
+                        CategoryDisclosure(
+                            category: category,
+                            model: model,
+                            trash: trash,
+                            expanded: $expanded,
+                            onQuickLook: { previewURL = $0 }
+                        )
+                        .id(category.id)
+                    }
+                    if !missing.isEmpty, !model.filter.isActive {
+                        NotOnThisMacRow(categories: missing)
+                    }
+                } header: {
+                    GroupHeader(group: group, model: model, trash: trash)
+                }
             }
         }
         .listStyle(.inset)
@@ -106,7 +122,7 @@ struct StorageManagerView: View {
             }
         }
         .motionAnimation(.snappy, value: model.selectedCount > 0)
-        .navigationTitle("Storage Manager")
+        .navigationTitle(group.map { Text($0.title) } ?? Text("Storage Manager"))
         .navigationSubtitle(subtitle)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -123,14 +139,14 @@ struct StorageManagerView: View {
                 }
                 .disabled(!model.hasAnyResult)
                 Button {
-                    Task { await model.scanAll() }
+                    Task { await model.scanAll(in: group) }
                 } label: {
-                    Label(model.hasAnyResult ? "Rescan All" : "Scan All", systemImage: "arrow.clockwise")
+                    Label(scanTitle, systemImage: "arrow.clockwise")
                         .symbolEffect(.rotate.byLayer, options: .repeat(.continuous), isActive: model.isScanningAll)
                 }
                 .disabled(model.isScanningAll)
                 .keyboardShortcut("r", modifiers: .command)
-                .help(model.isScanningAll ? "Scanning…" : "Scan every category (⌘R)")
+                .help(model.isScanningAll ? "Scanning…" : group == nil ? "Scan every category (⌘R)" : "Scan this group (⌘R)")
             }
         }
         .quickLookPreview($previewURL)
@@ -140,6 +156,21 @@ struct StorageManagerView: View {
             guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return }
             for category in model.categories where model.isVisible(category) { expanded.insert(category.id) }
         }
+    }
+
+    /// The group picked in the sidebar, or every group in size order (Personal Files last).
+    private var shownGroups: [CleanupCategory.Group] {
+        // Developer groups with nothing on this Mac are left out, as in the sidebar.
+        let groups = group.map { [$0] } ?? model.groupOrder.filter { !model.isAbsent($0) }
+        // While a search or filter narrows the list, drop groups left with no rows.
+        guard model.filter.isActive else { return groups }
+        return groups.filter { group in model.orderedCategories(in: group).contains(where: model.isVisible) }
+    }
+
+    private var scanTitle: String {
+        let scanned = group.map(model.hasResult(in:)) ?? model.hasAnyResult
+        if group == nil { return scanned ? "Rescan All" : "Scan All" }
+        return scanned ? "Rescan" : "Scan"
     }
 
     private var selectionDetail: String {
@@ -163,8 +194,9 @@ struct StorageManagerView: View {
     }
 
     private var subtitle: String {
-        guard model.hasAnyResult else { return "Not scanned yet" }
-        let found = "\(model.foundBytes.fileSize) found"
+        let hasResult = group.map(model.hasResult(in:)) ?? model.hasAnyResult
+        guard hasResult else { return "Not scanned yet" }
+        let found = "\((group.map(model.foundBytes(in:)) ?? model.foundBytes).fileSize) found"
         if !model.refreshing.isEmpty { return "\(found) · Updating…" }
         if let date = model.oldestScan, date.timeIntervalSinceNow < -60 {
             return "\(found) · Scanned \(date.formatted(.relative(presentation: .named)))"
@@ -727,6 +759,66 @@ private struct SimulatorLabel: View {
             parts.append("never used")
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// A group's title with its checkbox, total, and "Clean Safe Items".
+private struct GroupHeader: View {
+    let group: CleanupCategory.Group
+    let model: StorageModel
+    let trash: TrashCoordinator
+
+    var body: some View {
+        let hasResult = model.hasResult(in: group)
+        HStack(spacing: 8) {
+            TriStateCheckbox(state: model.checkState(of: group), isEnabled: hasResult && !model.isScanning(group)) {
+                model.toggle(group)
+            }
+            .help("Select everything in this group")
+            Text(group.title)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.primary)
+            Spacer(minLength: 8)
+            if model.hasSafeItems(in: group) {
+                TrashOriginReader { origin in
+                    Button("Clean Safe Items…") {
+                        if let request = model.safeItemsRequest(in: group) { trash.request(request, from: origin.rect) }
+                    }
+                        .controlSize(.small)
+                        .disabled(trash.isRunning)
+                        .help("Move every Safe item in \(String(localized: group.title)) to the Trash")
+                }
+            }
+            if hasResult {
+                CountingBytes(bytes: Double(model.foundBytes(in: group)))
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .motionAnimation(.smooth(duration: 0.6), value: model.foundBytes(in: group))
+                    .frame(minWidth: 80, alignment: .trailing)
+            }
+        }
+        .textCase(nil)
+        .padding(.top, 10)
+        .padding(.bottom, 2)
+    }
+}
+
+/// The group's categories whose tools aren't on this Mac, folded into one row.
+private struct NotOnThisMacRow: View {
+    let categories: [CleanupCategory]
+    @State private var isExpanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            Text(categories.map { String(localized: $0.name) }.formatted(.list(type: .and)))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } label: {
+            Label("Not on this Mac (\(categories.count))", systemImage: "minus.circle")
+                .foregroundStyle(.secondary)
+                .help("Nothing of these tools was found on this Mac. They're scanned again with every scan.")
+        }
     }
 }
 

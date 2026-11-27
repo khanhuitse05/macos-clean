@@ -719,3 +719,29 @@ struct FileSystemWatcherTests {
         #expect(changes.contains { $0.path.hasSuffix("/watched/inner") })
     }
 }
+
+// MARK: - Category groups
+
+@Suite("CleanupCategory groups")
+struct CategoryGroupTests {
+    func ids(in group: CleanupCategory.Group) -> Set<String> {
+        Set(CleanupCategory.all.filter { $0.group == group }.map(\.id))
+    }
+
+    @Test func personalFilesAreTheFourKindsOfOwnFiles() {
+        #expect(ids(in: .personal) == ["system-downloads", "ios-backups", "local-ai-models", "xcode-archives"])
+        #expect(CleanupCategory.all.filter { $0.group == .personal }.allSatisfy { $0.safety == .caution })
+    }
+
+    @Test func groupsMatchThePlan() {
+        #expect(ids(in: .systemApps) == ["user-caches", "user-logs", "trash", "app-caches", "ios-updates"])
+        #expect(ids(in: .xcode).count == 7)
+        #expect(ids(in: .aiContainers) == ["docker-data", "claude-data", "local-ai-logs", "local-ai-history"])
+        #expect(ids(in: .developer).contains("dev-projects"))
+        #expect(ids(in: .developer).contains("npm-cache"))
+    }
+
+    @Test func everyGroupHasCategories() {
+        for group in CleanupCategory.Group.allCases { #expect(!ids(in: group).isEmpty) }
+    }
+}
