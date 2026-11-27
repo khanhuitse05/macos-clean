@@ -17,6 +17,7 @@
   <meta name="theme-color" content="#0f766e" />
   <link rel="icon" type="image/svg+xml" href="./assets/app-icon.svg" />
   <link rel="stylesheet" href="./styles.css" />
+  <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
   <div class="ambient-backdrop" aria-hidden="true">
@@ -34,7 +35,6 @@
 
       <div class="nav-links">
         <a href="#features">Features</a>
-        <a href="#speed">Speed</a>
       </div>
 
       <div class="nav-actions">
@@ -52,7 +52,7 @@
           <span class="theme-icon" id="theme-icon" aria-hidden="true">☾</span>
           <span class="theme-label" id="theme-label">Dark</span>
         </button>
-        <a class="glass-prominent nav-download" href="#download">Download</a>
+        <a class="glass-prominent nav-download" href="https://github.com/khanhuitse05/macos-clean/releases/latest/download/macos-clean.dmg">Download</a>
       </div>
     </nav>
   </header>
@@ -99,41 +99,11 @@
             </div>
 
             <div class="sidebar-group-label">Clean Up</div>
-            <ul class="sidebar-list" role="tablist" aria-label="App sections">
-              <li>
-                <button type="button" class="sidebar-item is-active" data-section="storage" role="tab" aria-selected="true">
-                  <span class="sb-icon" aria-hidden="true">
-                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="14" height="10" rx="2"/><path d="M3 11.5h14M13.5 13.5h1"/></svg>
-                  </span>
-                  <span class="sb-label">Storage Manager</span>
-                </button>
-              </li>
-              <li>
-                <button type="button" class="sidebar-item" data-section="largeFiles" role="tab" aria-selected="false">
-                  <span class="sb-icon" aria-hidden="true">
-                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3.5h6.5L15 7v9.5a1 1 0 01-1 1H5a1 1 0 01-1-1v-12a1 1 0 011-1z"/><circle cx="10.5" cy="11.5" r="2.2"/><path d="M12.2 13.2l1.6 1.6"/></svg>
-                  </span>
-                  <span class="sb-label">Large Files</span>
-                </button>
-              </li>
-              <li>
-                <button type="button" class="sidebar-item" data-section="fileBrowser" role="tab" aria-selected="false">
-                  <span class="sb-icon" aria-hidden="true">
-                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="12" rx="2"/><path d="M7.5 4v12M12.5 4v12"/></svg>
-                  </span>
-                  <span class="sb-label">File Browser</span>
-                </button>
-              </li>
-              <li>
-                <button type="button" class="sidebar-item" data-section="uninstaller" role="tab" aria-selected="false">
-                  <span class="sb-icon" aria-hidden="true">
-                    <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="3.5" width="13" height="13" rx="3"/><path d="M7.5 7.5l5 5M12.5 7.5l-5 5"/></svg>
-                  </span>
-                  <span class="sb-label">Uninstaller</span>
-                  <span class="sb-badge" id="uninstaller-badge">2</span>
-                </button>
-              </li>
-            </ul>
+            <div class="sidebar-scroll">
+              <ul class="sidebar-list" id="sidebar-list" role="tablist" aria-label="App sections">
+                <!-- Rendered by app.js -->
+              </ul>
+            </div>
 
             <div class="sidebar-bottom">
               <button type="button" class="fda-sidebar-btn" id="window-fda-toggle" title="Preview Full Disk Access blocked state or open FDA welcome sheet">
@@ -218,140 +188,215 @@
 
     <!-- Stats strip -->
     <section class="container stats-strip" aria-label="At a glance">
-      <div class="stat"><strong>7×</strong><span>faster scans</span></div>
-      <div class="stat"><strong>26</strong><span>junk categories</span></div>
+      <div class="stat"><strong>37</strong><span>places it checks</span></div>
+      <div class="stat"><strong>5</strong><span>tools in one app</span></div>
+      <div class="stat"><strong>100%</strong><span>local, no telemetry</span></div>
       <div class="stat"><strong>0</strong><span>surprise deletes</span></div>
-      <div class="stat"><strong>≤5%</strong><span>CPU in background</span></div>
     </section>
 
     <!-- Features -->
     <section id="features" class="section container">
-      <div class="section-header center">
-        <h2>Six tools. One tidy Mac.</h2>
+      <div class="section-header center reveal">
+        <span class="eyebrow">Features</span>
+        <h2>Every gigabyte, <span class="text-gradient">accounted for.</span></h2>
+        <p>Focused tools that show where your space went, and help you take it back.</p>
       </div>
 
-      <div class="feature-grid">
-        <article class="feature-tile glass-panel">
-          <span class="feature-icon fi-teal" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="14" height="10" rx="2"/><path d="M3 11.5h14M13.5 13.5h1"/></svg></span>
-          <h3>Storage</h3>
-          <p>Caches, logs and dev junk — pre-sorted.</p>
-        </article>
-        <article class="feature-tile glass-panel">
-          <span class="feature-icon fi-sky" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3.5h6.5L15 7v9.5a1 1 0 01-1 1H5a1 1 0 01-1-1v-12a1 1 0 011-1z"/><circle cx="10.5" cy="11.5" r="2.2"/><path d="M12.2 13.2l1.6 1.6"/></svg></span>
-          <h3>Large Files</h3>
-          <p>Find the giants. Quick Look first.</p>
-        </article>
-        <article class="feature-tile glass-panel">
-          <span class="feature-icon fi-violet" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="12" rx="2"/><path d="M7.5 4v12M12.5 4v12"/></svg></span>
-          <h3>File Browser</h3>
-          <p>Finder columns with instant sizes.</p>
-        </article>
-        <article class="feature-tile glass-panel">
-          <span class="feature-icon fi-amber" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="9" height="11" rx="1.6"/><path d="M8 6V4.6A1.6 1.6 0 019.6 3h5.8A1.6 1.6 0 0117 4.6v7.8a1.6 1.6 0 01-1.6 1.6H12"/></svg></span>
-          <h3>Duplicates</h3>
-          <p>Spot identical files, keep one.</p>
-        </article>
-        <article class="feature-tile glass-panel">
-          <span class="feature-icon fi-rose" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="3.5" width="13" height="13" rx="3"/><path d="M7.5 7.5l5 5M12.5 7.5l-5 5"/></svg></span>
-          <h3>Uninstaller</h3>
-          <p>Catches leftovers of deleted apps.</p>
-        </article>
-        <article class="feature-tile glass-panel">
-          <span class="feature-icon fi-slate" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4.5 6h11M7.5 6V4.2h5V6M6.2 6l.7 10.2a1 1 0 001 .8h4.2a1 1 0 001-.8L13.8 6"/></svg></span>
-          <h3>Trash &amp; History</h3>
-          <p>Review, empty, and see what you freed.</p>
-        </article>
-      </div>
-
-      <div class="cleans-panel glass-panel">
-        <div class="cleans-head">
-          <h3>What it cleans</h3>
-          <div class="filter-pills" id="category-filters" role="group" aria-label="Filter categories">
-            <button type="button" class="filter-pill is-active" data-filter="all">All</button>
-            <button type="button" class="filter-pill" data-filter="apple">Xcode &amp; iOS</button>
-            <button type="button" class="filter-pill" data-filter="toolchain">Dev tools</button>
-            <button type="button" class="filter-pill" data-filter="apps">Apps &amp; system</button>
-          </div>
-        </div>
-        <div class="chip-cloud" id="categories-grid"></div>
-        <div class="chip-legend">
-          <span><i class="dot-safe"></i> Selected for you</span>
-          <span><i class="dot-caution"></i> You review first</span>
-        </div>
-      </div>
-    </section>
-
-    <!-- Speed -->
-    <section id="speed" class="section container">
-      <div class="speed-layout">
-        <div class="section-header">
-          <h2>Up to <span class="text-gradient">7× faster</span>.</h2>
-          <p>Half a million files, scanned in seconds. The UI never stalls.</p>
-        </div>
-
-        <div class="speed-card glass-panel">
-          <div class="speed-legend">
-            <span><i class="dot-before"></i> Typical scan</span>
-            <span><i class="dot-after"></i> macOS Clean</span>
-          </div>
-          <div class="speed-row">
-            <div class="speed-label"><span>Find large files · 505k files</span><b>7.0×</b></div>
-            <div class="speed-bar before" style="--w:100%"><span>17.5 s</span></div>
-            <div class="speed-bar after" style="--w:14.3%"><span>2.5 s</span></div>
-          </div>
-          <div class="speed-row">
-            <div class="speed-label"><span>Measure a 129 GB folder</span><b>3.3×</b></div>
-            <div class="speed-bar before" style="--w:100%"><span>37.3 s</span></div>
-            <div class="speed-bar after" style="--w:30%"><span>11.2 s</span></div>
-          </div>
-          <div class="speed-row">
-            <div class="speed-label"><span>Open a scanned folder</span><b>Instant</b></div>
-            <div class="speed-bar after" style="--w:3%"><span>prefetched</span></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Download -->
-    <section id="download" class="section container">
-      <div class="download-card glass-panel">
-        <img src="./assets/app-icon.svg" alt="" width="96" height="96" class="dl-icon" />
-        <h2>Get macOS Clean</h2>
-        <p class="dl-meta">Free &amp; Open Source (MIT) · macOS 26+ · Apple Silicon &amp; Intel</p>
-        <div class="hero-ctas">
-          <a class="cta-primary glass-prominent" href="https://github.com/khanhuitse05/macos-clean/releases/latest/download/macos-clean.dmg">
-            <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 3v9.5m0 0l-3.5-3.5M10 12.5l3.5-3.5M4 15.5h12" stroke-linecap="round" stroke-linejoin="round" /></svg>
-            Download .dmg
-          </a>
-          <a class="cta-secondary glass-btn" href="https://github.com/khanhuitse05/macos-clean/releases/latest" target="_blank" rel="noopener noreferrer">Release notes</a>
-        </div>
-
-        <ol class="steps" aria-label="Install in three steps">
-          <li class="step">
-            <span class="step-icon" aria-hidden="true">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5A1.5 1.5 0 014 5h3.5L9 6.5h7a1.5 1.5 0 011.5 1.5v6.5A1.5 1.5 0 0116 16H4a1.5 1.5 0 01-1.5-1.5z"/><path d="M10 8.6v4.6M8 11.3l2 2 2-2"/></svg>
+      <div class="showcase reveal" id="tool-showcase">
+        <div class="tool-tabs" role="tablist" aria-label="Tools">
+          <button type="button" class="tool-tab is-active" role="tab" id="tab-storage" aria-selected="true" aria-controls="stage-storage" style="--tc:#2dd4bf">
+            <span class="tool-icon fi-teal" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="14" height="10" rx="2"/><path d="M3 11.5h14M13.5 13.5h1"/></svg></span>
+            <span class="tool-text">
+              <strong>Storage Manager</strong>
+              <span class="tool-desc"><span>Caches, logs and developer junk, sorted into five groups. Safe items are ticked for you.</span></span>
             </span>
-            <span class="step-label">Step 1</span>
-            <strong>Drag to Applications</strong>
-            <span class="step-hint">Open the .dmg, drop the app in.</span>
-          </li>
-          <li class="step">
-            <span class="step-icon" aria-hidden="true">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2.8l5.5 2v4.4c0 3.6-2.4 6.3-5.5 7.6-3.1-1.3-5.5-4-5.5-7.6V4.8z"/><path d="M7.6 10.1l1.7 1.7 3.1-3.3"/></svg>
+            <span class="tool-progress" aria-hidden="true"><i></i></span>
+          </button>
+          <button type="button" class="tool-tab" role="tab" id="tab-large" aria-selected="false" aria-controls="stage-large" style="--tc:#38bdf8">
+            <span class="tool-icon fi-sky" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3.5h6.5L15 7v9.5a1 1 0 01-1 1H5a1 1 0 01-1-1v-12a1 1 0 011-1z"/><circle cx="10.5" cy="11.5" r="2.2"/><path d="M12.2 13.2l1.6 1.6"/></svg></span>
+            <span class="tool-text">
+              <strong>Large Files</strong>
+              <span class="tool-desc"><span>Find the biggest files anywhere on your Mac. Quick Look before you decide.</span></span>
             </span>
-            <span class="step-label">Step 2</span>
-            <strong>Allow Full Disk Access</strong>
-            <span class="step-hint">Privacy &amp; Security › Full Disk Access</span>
-          </li>
-          <li class="step">
-            <span class="step-icon" aria-hidden="true">
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 10a5.5 5.5 0 11-1.6-3.9"/><path d="M15.5 3.6v3.1h-3.1"/></svg>
+            <span class="tool-progress" aria-hidden="true"><i></i></span>
+          </button>
+          <button type="button" class="tool-tab" role="tab" id="tab-dupes" aria-selected="false" aria-controls="stage-dupes" style="--tc:#fbbf24">
+            <span class="tool-icon fi-amber" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="6" width="9" height="11" rx="1.6"/><path d="M8 6V4.6A1.6 1.6 0 019.6 3h5.8A1.6 1.6 0 0117 4.6v7.8a1.6 1.6 0 01-1.6 1.6H12"/></svg></span>
+            <span class="tool-text">
+              <strong>Duplicates</strong>
+              <span class="tool-desc"><span>Byte-for-byte identical files. Keep one copy, free the rest.</span></span>
             </span>
-            <span class="step-label">Step 3</span>
-            <strong>Reopen &amp; scan</strong>
-            <span class="step-hint">Press <kbd>⌘</kbd> <kbd>R</kbd> to scan everything.</span>
-          </li>
-        </ol>
+            <span class="tool-progress" aria-hidden="true"><i></i></span>
+          </button>
+          <button type="button" class="tool-tab" role="tab" id="tab-browser" aria-selected="false" aria-controls="stage-browser" style="--tc:#a78bfa">
+            <span class="tool-icon fi-violet" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="4" width="15" height="12" rx="2"/><path d="M7.5 4v12M12.5 4v12"/></svg></span>
+            <span class="tool-text">
+              <strong>File Browser</strong>
+              <span class="tool-desc"><span>Finder-style columns with the size of every folder, so you can see where the space went.</span></span>
+            </span>
+            <span class="tool-progress" aria-hidden="true"><i></i></span>
+          </button>
+          <button type="button" class="tool-tab" role="tab" id="tab-uninstall" aria-selected="false" aria-controls="stage-uninstall" style="--tc:#fb7185">
+            <span class="tool-icon fi-rose" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="3.5" width="13" height="13" rx="3"/><path d="M7.5 7.5l5 5M12.5 7.5l-5 5"/></svg></span>
+            <span class="tool-text">
+              <strong>Uninstaller</strong>
+              <span class="tool-desc"><span>Removes an app with everything it left behind, even for apps you deleted long ago.</span></span>
+            </span>
+            <span class="tool-progress" aria-hidden="true"><i></i></span>
+          </button>
+          <button type="button" class="tool-tab" role="tab" id="tab-scan" aria-selected="false" aria-controls="stage-scan" style="--tc:#4ade80">
+            <span class="tool-icon fi-green" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M11 2.5L4.5 11h5l-1 6.5L15.5 9h-5z"/></svg></span>
+            <span class="tool-text">
+              <strong>Fast Scan</strong>
+              <span class="tool-desc"><span>Gets through thousands of folders fast, at low priority, so your Mac stays quick.</span></span>
+            </span>
+            <span class="tool-progress" aria-hidden="true"><i></i></span>
+          </button>
+        </div>
+
+        <div class="tool-stage glass-panel">
+          <!-- Storage Manager -->
+          <div class="stage is-active" role="tabpanel" id="stage-storage" aria-labelledby="tab-storage" style="--tc:#2dd4bf">
+            <div class="st-card">
+              <div class="st-head">
+                <div><strong>Storage Manager</strong><span>5 groups · 37 categories</span></div>
+                <b class="st-big"><span data-count="58.2">58.2</span> GB</b>
+              </div>
+              <div class="st-diskbar" aria-hidden="true">
+                <i class="db-used"></i><i class="db-junk"></i><i class="db-trash"></i>
+              </div>
+              <ul class="st-rows">
+                <li class="a" style="--i:1; --p:100%; --c:#a78bfa"><span class="sq"></span>Xcode &amp; Simulators<b>31.0 GB</b><i class="bar"></i></li>
+                <li class="a" style="--i:2; --p:40%; --c:#2dd4bf"><span class="sq"></span>System &amp; Apps<b>12.4 GB</b><i class="bar"></i></li>
+                <li class="a" style="--i:3; --p:32%; --c:#38bdf8"><span class="sq"></span>Developer Caches<b>9.8 GB</b><i class="bar"></i></li>
+                <li class="a" style="--i:4; --p:10%; --c:#fb7185"><span class="sq"></span>AI &amp; Containers<b>3.1 GB</b><i class="bar"></i></li>
+                <li class="a" style="--i:5; --p:6%; --c:#fbbf24"><span class="sq"></span>Personal Files<b>1.9 GB</b><i class="bar"></i></li>
+              </ul>
+            </div>
+            <div class="st-float st-float-br a" style="--i:7">
+              <span class="tick">✓</span><div><b>41.6 GB</b> Safe items ticked for you</div>
+            </div>
+          </div>
+
+          <!-- Large Files -->
+          <div class="stage" role="tabpanel" id="stage-large" aria-labelledby="tab-large" style="--tc:#38bdf8" hidden>
+            <div class="st-card">
+              <div class="st-head">
+                <div><strong>Large Files</strong><span>Bigger than 1 GB</span></div>
+                <b class="st-big"><span data-count="32.2">32.2</span> GB</b>
+              </div>
+              <ul class="st-rows st-files">
+                <li class="a" style="--i:1; --p:100%"><span class="ext">XIP</span><span class="fname">Xcode_26.xip<small>Downloads</small></span><b>11.2 GB</b><i class="bar"></i></li>
+                <li class="a" style="--i:2; --p:75%"><span class="ext">FCP</span><span class="fname">Wedding.fcpbundle<small>Movies</small></span><b>8.4 GB</b><i class="bar"></i></li>
+                <li class="a" style="--i:3; --p:54%"><span class="ext">ISO</span><span class="fname">ubuntu-24.04.iso<small>Downloads</small></span><b>6.1 GB</b><i class="bar"></i></li>
+                <li class="a" style="--i:4; --p:38%"><span class="ext">MOV</span><span class="fname">Screen Recording.mov<small>Desktop</small></span><b>4.3 GB</b><i class="bar"></i></li>
+                <li class="a" style="--i:5; --p:20%"><span class="ext">ZIP</span><span class="fname">project-backup.zip<small>Documents</small></span><b>2.2 GB</b><i class="bar"></i></li>
+              </ul>
+            </div>
+            <div class="st-float st-float-tr a" style="--i:6">
+              <span class="tick tick-sky"><svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.5"/></svg></span><div><b>Quick Look</b> before you trash</div>
+            </div>
+          </div>
+
+          <!-- Duplicates -->
+          <div class="stage" role="tabpanel" id="stage-dupes" aria-labelledby="tab-dupes" style="--tc:#fbbf24" hidden>
+            <div class="st-card">
+              <div class="st-head">
+                <div><strong>Duplicates</strong><span>Matched by content, not by name</span></div>
+                <b class="st-big"><span data-count="2.4">2.4</span> GB</b>
+              </div>
+              <div class="dupe-group a" style="--i:1">
+                <div class="dg-head"><span class="ext">HEIC</span>IMG_2041.HEIC<small>3 copies · 1.2 GB each</small></div>
+                <ul>
+                  <li class="keep"><span>~/Pictures/IMG_2041.HEIC</span><em>Keep</em></li>
+                  <li class="extra" style="--d:0"><span>~/Desktop/IMG_2041 copy.HEIC</span><em>Trash</em></li>
+                  <li class="extra" style="--d:1"><span>~/Downloads/IMG_2041 (1).HEIC</span><em>Trash</em></li>
+                </ul>
+              </div>
+              <div class="dupe-group dupe-group-collapsed a" style="--i:3">
+                <div class="dg-head"><span class="ext">PDF</span>Q3-report.pdf<small>2 copies · 18 MB each</small></div>
+              </div>
+            </div>
+            <div class="st-float st-float-tr a" style="--i:6">
+              <span class="tick tick-amber">=</span><div><b>Same bytes</b>, checked with a hash</div>
+            </div>
+          </div>
+
+          <!-- File Browser -->
+          <div class="stage" role="tabpanel" id="stage-browser" aria-labelledby="tab-browser" style="--tc:#a78bfa" hidden>
+            <div class="st-card st-card-wide">
+              <div class="st-head">
+                <div><strong>File Browser</strong><span>~/Library/Developer</span></div>
+                <b class="st-big"><span data-count="31.0">31.0</span> GB</b>
+              </div>
+              <div class="miller">
+                <ul class="a" style="--i:1">
+                  <li class="on">Library<b>48 GB</b></li>
+                  <li>Movies<b>21 GB</b></li>
+                  <li>Music<b>6.2 GB</b></li>
+                  <li>Documents<b>4.1 GB</b></li>
+                  <li>Desktop<b>1.3 GB</b></li>
+                </ul>
+                <ul class="a" style="--i:3">
+                  <li class="on">Developer<b>31 GB</b></li>
+                  <li>Caches<b>9.1 GB</b></li>
+                  <li>Containers<b>6.3 GB</b></li>
+                  <li>Logs<b>1.0 GB</b></li>
+                </ul>
+                <ul class="a" style="--i:5">
+                  <li class="on">Xcode<b>22 GB</b></li>
+                  <li>CoreSimulator<b>7.8 GB</b></li>
+                  <li>Toolchains<b>0.8 GB</b></li>
+                </ul>
+              </div>
+            </div>
+            <div class="st-float st-float-bl a" style="--i:7">
+              <span class="tick tick-violet">⚡</span><div><b>Sizes appear instantly</b> as you click</div>
+            </div>
+          </div>
+
+          <!-- Uninstaller -->
+          <div class="stage" role="tabpanel" id="stage-uninstall" aria-labelledby="tab-uninstall" style="--tc:#fb7185" hidden>
+            <div class="st-card">
+              <div class="st-head">
+                <div class="un-app">
+                  <span class="un-glyph" aria-hidden="true">S</span>
+                  <div><strong>Sketchpad</strong><span>App · 412 MB</span></div>
+                </div>
+                <b class="st-big"><span data-count="1.7">1.7</span> GB</b>
+              </div>
+              <p class="st-sub a" style="--i:1">Also found with it</p>
+              <ul class="st-rows un-left">
+                <li class="a" style="--i:2"><span class="un-kind">Application Support</span><span class="path">~/Library/Application Support/Sketchpad</span><b>1.0 GB</b></li>
+                <li class="a" style="--i:3"><span class="un-kind">Caches</span><span class="path">~/Library/Caches/com.example.sketchpad</span><b>286 MB</b></li>
+                <li class="a" style="--i:4"><span class="un-kind">Logs</span><span class="path">~/Library/Logs/Sketchpad</span><b>4 MB</b></li>
+                <li class="a" style="--i:5"><span class="un-kind">Preferences</span><span class="path">com.example.sketchpad.plist</span><b>12 KB</b></li>
+              </ul>
+            </div>
+            <div class="st-float st-float-tr a" style="--i:7">
+              <span class="tick tick-rose">✨</span><div><b>2 removed apps</b> left files behind</div>
+            </div>
+          </div>
+
+          <!-- Fast Scan -->
+          <div class="stage" role="tabpanel" id="stage-scan" aria-labelledby="tab-scan" style="--tc:#4ade80" hidden>
+            <div class="st-card st-card-wide scan-card" id="scan-viz">
+              <div class="st-head">
+                <div><strong>Scanning your Mac</strong><span>Runs at low priority</span></div>
+                <b class="st-big"><span id="sv-found">0.0</span> GB</b>
+              </div>
+              <div class="sv-grid" id="sv-grid" aria-hidden="true"></div>
+              <div class="sv-status">
+                <span class="sv-spinner" aria-hidden="true"></span>
+                <span id="sv-status-text">Scanning…</span>
+              </div>
+            </div>
+            <div class="st-float st-float-tr a" style="--i:4">
+              <span class="tick tick-green">⚡</span><div><b>Light on your Mac.</b> You won't feel it.</div>
+            </div>
+          </div>
+
+        </div>
       </div>
     </section>
   </main>
@@ -366,7 +411,7 @@
         <a href="https://github.com/khanhuitse05/macos-clean" target="_blank" rel="noopener noreferrer">GitHub</a>
         <a href="https://github.com/khanhuitse05/macos-clean/releases" target="_blank" rel="noopener noreferrer">Releases</a>
         <a href="https://github.com/khanhuitse05/macos-clean/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT License</a>
-        <a href="#download">Download</a>
+        <a href="https://github.com/khanhuitse05/macos-clean/releases/latest/download/macos-clean.dmg">Download</a>
       </div>
     </div>
   </footer>
